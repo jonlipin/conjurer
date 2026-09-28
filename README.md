@@ -63,6 +63,9 @@ like holding one of your action bar keys.
   it checks against what your bags show), so it ends the hold exactly at the target: when the last
   cast starts, the button already moves on. It counts a cast that has landed but whose items haven't
   reached your bags yet, which they do about a second later.
+- If that last cast comes up short after all, the spell goes back on the button, but never while you
+  still hold the key between casts (the game refuses that): let go and hold again. A cast whose
+  items arrive in two parts (one tops up a stack, the rest start a new one) isn't taken as short.
 - When every target is met, Ready switches itself off, the borrowed button is emptied and your key
   goes back to what it normally does.
 - Entering combat switches Ready off at once. A secure state driver also takes the key away the

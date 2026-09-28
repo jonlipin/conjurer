@@ -395,6 +395,16 @@ end
 
 local placeTries = 0
 local function PlaceSoon(entry)
+	-- Never while the key is down and nothing is being cast. The hold has ended then (the button
+	-- moved on), and a spell put back on the held button makes the game carry the hold on from
+	-- Conjurer's code, which it refuses with its "blocked from an action only available to the
+	-- Blizzard UI" popup (log of 2026-09-28). The spell goes back on the key up. During a cast,
+	-- like the move when a cast starts, the button can change freely.
+	if C.hold.held and not C.inFlight then
+		if not C.placeOnRelease then ns.Log(entry.name .. " goes back on the button when you let go") end
+		C.placeOnRelease = true
+		return false
+	end
 	local placed, why = C.Place(entry)
 	if placed or not C.armed then
 		placeTries = 0
@@ -451,7 +461,7 @@ function C.Arm()
 	end
 
 	C.armed = true
-	C.working, C.early, C.inFlight = row, nil, nil
+	C.working, C.early, C.inFlight, C.placeOnRelease = row, nil, nil, nil
 	C.ResetRowWatch(row)
 	ns.Log("Ready is lit; hold to cast " .. (C.HoldReady() and "on" or "OFF (one cast per press)"))
 	if not C.HoldReady() then
@@ -476,7 +486,7 @@ function C.Disarm(reason)
 		C.GiveBackSettings()
 	end
 	C.placed = nil
-	C.working, C.early, C.inFlight = nil, nil, nil
+	C.working, C.early, C.inFlight, C.placeOnRelease = nil, nil, nil, nil
 	C.ResetRowWatch()
 	C.hold.held = false
 	if reason then ns.Print(reason) end
@@ -600,6 +610,36 @@ local function ResetRowWatch(entry)
 end
 C.ResetRowWatch = ResetRowWatch
 
+-- The cast the button moved on for has landed and arrived without finishing the row (its yield was
+-- guessed high): the row's spell goes back on the button. But one cast's items can reach the bags
+-- in more than one update, one topping up an uneven stack and the rest starting a new one (log of
+-- 2026-09-28: 39 of 40 seen, and taken as short, a moment before the 40th arrived). So a shortfall
+-- is only believed once the bags have been still for a moment.
+C.SETTLE = 1.5
+local shortCheck
+local function IsShort()
+	local working = C.working
+	return C.armed and C.early ~= nil and working ~= nil and not C.inFlight and (C.landed or 0) == 0
+		and ns.Count(working.item) < ns.Target(working)
+end
+
+local function CheckShortSoon()
+	if shortCheck then return end
+	shortCheck = true
+	ns.After(C.SETTLE, function()
+		shortCheck = nil
+		if not IsShort() or ns.InCombat() then return end
+		local working = C.working
+		ns.Log("the cast " .. working.name .. " moved on for fell short (" .. ns.Count(working.item) .. "/" .. ns.Target(working)
+			.. "); its spell goes back on the button")
+		C.early = nil
+		if C.hold.held then
+			Announce(ns.ShortName(working) .. " came up short. Let go, then hold " .. C.KeyText() .. " again.")
+		end
+		C.Update()
+	end)
+end
+
 -- Called whenever the bags change: announces a finished row, keeps the button on the row being
 -- conjured, and finishes when nothing is left.
 function C.Update()
@@ -610,12 +650,7 @@ function C.Update()
 		-- Items arrived: whatever had landed is in the bags now.
 		if C.lastSeen and now > C.lastSeen then C.landed = 0 end
 		C.lastSeen = now
-		-- The cast the button moved on for has landed and arrived without finishing the row (its
-		-- yield was guessed high): the row's spell goes back on the button.
-		if C.early and not C.inFlight and (C.landed or 0) == 0 and now < ns.Target(working) then
-			ns.Log("the cast " .. working.name .. " moved on for fell short (" .. now .. "/" .. ns.Target(working) .. "); its spell goes back on the button")
-			C.early = nil
-		end
+		if IsShort() then CheckShortSoon() end
 	end
 	local row = C.CurrentRow()
 	if working and row ~= working then
@@ -687,6 +722,11 @@ local function OnRelease(barName, id)
 	C.hold.held = false
 	if C.hold.current > C.hold.best then C.hold.best = C.hold.current end
 	ns.Log("key up after " .. C.hold.current .. " conjure" .. (C.hold.current == 1 and "" or "s") .. " in this hold")
+	-- A spell held back while the key was down goes on the button now, a frame after the key up.
+	if C.placeOnRelease then
+		C.placeOnRelease = nil
+		ns.After(0, function() if C.armed then C.Update() end end)
+	end
 end
 
 local CAST_EVENTS = { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_INTERRUPTED",

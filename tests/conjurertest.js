@@ -307,6 +307,9 @@ C_ActionBar = {
   PutActionInSlot = function(slot)
     if COMBAT then error("blocked in combat") end
     if not CURSOR or CURSOR.kind ~= "spell" then return end
+    -- As in game (log of 2026-09-28): a spell put on the button whose key is down while nothing is
+    -- being cast makes the client carry the hold on from addon code, which it refuses.
+    if KEY_DOWN_SLOT == slot and not CASTING then REFUSED_PLACES = (REFUSED_PLACES or 0) + 1 end
     local old = ACTIONS[slot]
     ACTIONS[slot] = { kind = "spell", id = CURSOR.id }
     CURSOR = old and { kind = old.kind, id = old.id } or nil
@@ -650,6 +653,7 @@ function Hold(key, max)
   id = tonumber(id)
   local slot = _G[barName].actionButtons[id].action
   MultiActionButtonDown(barName, id)
+  KEY_DOWN_SLOT = slot
   local a = ACTIONS[slot]
   local spell = a and a.kind == "spell" and a.id
   local casts = 0
@@ -659,6 +663,13 @@ function Hold(key, max)
   local pendingItem, pendingN
   local function Arrive()
     if not pendingItem then return end
+    -- SPLIT_ARRIVAL: the items come in two bag updates, one topping up a stack, then the rest.
+    if SPLIT_ARRIVAL and pendingN > 1 then
+      AddItems(pendingItem, 1)
+      fire("BAG_UPDATE_DELAYED")
+      RunTimers(0.2)
+      pendingN = pendingN - 1
+    end
     AddItems(pendingItem, pendingN)
     pendingItem = nil
     fire("BAG_UPDATE_DELAYED")
@@ -667,11 +678,18 @@ function Hold(key, max)
   while queued and casts < (max or 100) do
     CAST_N = CAST_N + 1
     local guid = "Cast-" .. CAST_N
+    CASTING = true
     fire("UNIT_SPELLCAST_START", "player", guid, spell)
     RunTimers(0)
     Arrive()
     -- Something else changing in the bags while the cast is going (loot, a trade, food eaten).
     if BAG_UPDATE_MIDCAST then fire("BAG_UPDATE_DELAYED") RunTimers(0) end
+    -- ADD_DURING: items of the row handed over (a trade) during that cast.
+    if ADD_DURING and ADD_DURING.cast == casts + 1 then
+      AddItems(ADD_DURING.item, ADD_DURING.n)
+      ADD_DURING = nil
+      fire("BAG_UPDATE_DELAYED") RunTimers(0)
+    end
     -- One of what is being conjured drunk or eaten during this cast.
     if EAT_DURING == casts + 1 then
       local item = NS.BY_SPELL[spell].item
@@ -685,16 +703,26 @@ function Hold(key, max)
     queued = now and now.kind == "spell" and now.id == spell and BINDINGS[key] ~= nil
     if INTERRUPT_AT and INTERRUPT_AT == casts + 1 then
       INTERRUPT_AT = nil
+      CASTING = false
       fire("UNIT_SPELLCAST_INTERRUPTED", "player", guid, spell)
       RunTimers(0)
       break
     end
+    CASTING = false
     fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spell)
     RunTimers(0)
     pendingItem, pendingN = NS.BY_SPELL[spell].item, YieldOf(spell)
     casts = casts + 1
   end
+  -- KEEP_HOLDING: the key stays down that many seconds after the hold ends, so the last items
+  -- arrive with it still down.
+  if KEEP_HOLDING then
+    Arrive()
+    RunTimers(KEEP_HOLDING)
+  end
+  KEY_DOWN_SLOT = nil
   MultiActionButtonUp(barName, id)
+  RunTimers(0)
   Arrive()
   return casts
 end
@@ -901,6 +929,7 @@ base = C_Item.GetItemCount(8079)
 ns.Profile().water[7] = base + 10
 Click(P.readyButton)
 casts = Hold("F", 100)
+RunTimers(C.SETTLE)
 check("a cast that falls short of the guess puts its spell back", casts == 1 and C.armed and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].id == 10140
   and C_Item.GetItemCount(8079) == base + 6, casts)
 casts = Hold("F", 100)
@@ -927,6 +956,64 @@ casts = Hold("F", 100)
 BAG_UPDATE_MIDCAST = nil
 check("a bag change during the finishing cast doesn't undo the early move", casts == 2 and not C.armed
   and C_Item.GetItemCount(8079) == base + 20, casts)
+
+-- The in-game refusal (log of 2026-09-28): an uneven stack, so the finishing cast's items came in
+-- two bag updates while the key was still down. The first was taken as the cast falling short and
+-- the spell went back on the held button, which the game refused.
+REFUSED_PLACES = 0
+local function Logged(text) return table.concat(ConjurerLog.entries, "\n"):find(text, 1, true) ~= nil end
+local logMark = #ConjurerLog.entries
+local function LoggedSince(text)
+  for i = logMark + 1, #ConjurerLog.entries do if ConjurerLog.entries[i]:find(text, 1, true) then return true end end
+  return false
+end
+base = C_Item.GetItemCount(8079)
+ns.Profile().water[7] = base + 20
+ns.Profile().food[7] = C_Item.GetItemCount(22895) + 10
+Click(P.readyButton)
+SPLIT_ARRIVAL, KEEP_HOLDING = true, 3
+casts = Hold("F", 100)
+SPLIT_ARRIVAL, KEEP_HOLDING = nil, nil
+check("items arriving in two parts with the key down aren't taken as a cast falling short", casts == 2
+  and C_Item.GetItemCount(8079) == base + 20 and not LoggedSince("fell short"), casts)
+check("so nothing goes on the held button and the game refuses nothing", REFUSED_PLACES == 0, REFUSED_PLACES)
+check("and the button holds the next row", C.armed and C.placed and C.placed.spell == ns.FOOD[7].spell)
+C.Disarm()
+
+-- A real shortfall with the key still down: the spell waits for the key up.
+REFUSED_PLACES = 0
+logMark = #ConjurerLog.entries
+YIELD_OVERRIDE[10140] = 6
+base = C_Item.GetItemCount(8079)
+ns.Profile().water[7] = base + 10
+ns.Profile().food[7] = 0
+Click(P.readyButton)
+KEEP_HOLDING = 3
+casts = Hold("F", 100)
+KEEP_HOLDING = nil
+check("a real shortfall with the key down waits for the key up", casts == 1 and REFUSED_PLACES == 0
+  and LoggedSince("fell short (" .. (base + 6) .. "/" .. (base + 10) .. ")") and LoggedSince("goes back on the button when you let go"), REFUSED_PLACES)
+check("then the spell is back on the button", C.armed and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].id == 10140)
+check("and it says to let go and hold again", ErrorWith("Crystal Water came up short. Let go, then hold F again."))
+casts = Hold("F", 100)
+check("the next hold finishes the row", casts == 1 and not C.armed and C_Item.GetItemCount(8079) >= base + 10, casts)
+YIELD_OVERRIDE[10140] = nil
+ns.db.yield = {}
+
+-- The row filled some other way during a cast (a trade): the button moves on at once, mid-cast,
+-- so the hold ends after that cast rather than running on until the key up.
+REFUSED_PLACES = 0
+base = C_Item.GetItemCount(8079)
+ns.Profile().water[7] = base + 30
+ns.Profile().food[7] = C_Item.GetItemCount(22895) + 10
+Click(P.readyButton)
+ADD_DURING = { cast = 2, item = 8079, n = 20 }
+casts = Hold("F", 5)
+ADD_DURING = nil
+check("a row filled during a cast moves the button on then, not at the key up", casts == 2 and REFUSED_PLACES == 0
+  and C.armed and C.placed and C.placed.spell == ns.FOOD[7].spell, casts)
+C.Disarm()
+ns.Profile().food[7] = 0
 
 -- Combat: Ready goes off before the lockdown.
 ns.Profile().water[7] = C_Item.GetItemCount(8079) + 40
