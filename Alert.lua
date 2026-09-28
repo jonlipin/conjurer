@@ -5,7 +5,8 @@
 -- glow and how many you have left. Beside them, a play button that starts conjuring (stop while
 -- it runs) and a cog that opens Conjurer. Started from here, the alert stays up until conjuring
 -- stops, so its stop button stays in reach. It can show out of combat (the default), in combat, or
--- always, only for a kind you can conjure. "Low" counts every rank you are high enough to use.
+-- always, only for a kind you can conjure. "Low" counts your best rank and anything better you can
+-- use (another mage's), since that is what you conjure; lower ranks count only when ticked.
 
 local ADDON, ns = ...
 local report = ns.report
@@ -25,13 +26,16 @@ A.sticky = nil -- kinds that stay up while conjuring started from the alert runs
 A.WHEN = { "out", "in", "always" }
 A.WHEN_LABEL = { out = "Out of combat", ["in"] = "In combat", always = "Always" }
 
--- What you have of a kind that you are high enough to use, across every rank.
+-- What you have of a kind that counts for the alert: your best rank and any better one you are high
+-- enough to use, or every rank you can use when lower ranks count too.
 function A.Total(kind)
 	local level = ns.Clean(UnitLevel("player"))
 	level = type(level) == "number" and level or 60
+	local top = ns.TopKnown(kind)
+	local lowest = (top and not (ns.db and ns.db.alert.lowerRanks)) and top.level or 0
 	local n = 0
 	for _, entry in ipairs(ns.KINDS[kind]) do
-		if entry.level <= level then n = n + ns.Count(entry.item) end
+		if entry.level <= level and entry.level >= lowest then n = n + ns.Count(entry.item) end
 	end
 	return n
 end
@@ -78,7 +82,9 @@ local function Tooltip(self)
 	else
 		local kind = self.kind
 		GameTooltip:SetText("Conjured " .. ns.KIND_LABEL[kind]:lower() .. " is low", 1, 0.82, 0)
-		GameTooltip:AddLine(A.Total(kind) .. " left; the alert shows below " .. tostring(ns.db.alert[kind]) .. ".", 1, 1, 1, true)
+		local top = ns.TopKnown(kind)
+		local what = (top and not ns.db.alert.lowerRanks) and (ns.ItemName(top) .. " or better") or "of every rank"
+		GameTooltip:AddLine(A.Total(kind) .. " " .. what .. " left; the alert shows below " .. tostring(ns.db.alert[kind]) .. ".", 1, 1, 1, true)
 	end
 	if A.preview then GameTooltip:AddLine("Showing so you can move it. Drag it where you want it.", 0.6, 0.85, 1, true) end
 	GameTooltip:AddLine(" ")

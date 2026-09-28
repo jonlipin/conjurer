@@ -103,7 +103,9 @@ rewrites it as your bags change, out of combat. Delete it and Conjurer leaves it
 
 When your conjured water or food drops below the amount you set (20 water and 10 food to start
 with), an icon for it appears, glowing like a spell alert, with how many you have left. It counts
-every rank you're high enough to use and only alerts for what you can conjure.
+your best rank, the one you conjure (and any better one another mage gave you), so a pile of a
+lower rank doesn't hide that you're out; tick **Count lower ranks too** to count every rank you're
+high enough to use. It only alerts for what you can conjure.
 
 - Next to it are a **play** button that starts conjuring (stop while it runs) and a **cog** that
   opens Conjurer. Started from the alert, it stays up until conjuring stops, so stop stays in reach.

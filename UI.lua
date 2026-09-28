@@ -1070,7 +1070,7 @@ local function BuildAlert(body)
 	local on = NewCheck(body, "Show an alert icon when your conjured water or food runs low",
 		function() return ns.db.alert.enabled end,
 		function(v) ns.db.alert.enabled = v ns.Alert.Update() end,
-		"One icon per kind that's low, with how many you have left. Hidden in combat.")
+		"One icon per kind that's low, with how many you have left.")
 	on:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
 	y = y + 30
 	for _, kind in ipairs(ns.KIND_ORDER) do
@@ -1087,6 +1087,13 @@ local function BuildAlert(body)
 		body[kind .. "Slider"] = slider
 		y = y + ROW_H
 	end
+	local lower = NewCheck(body, "Count lower ranks too",
+		function() return ns.db.alert.lowerRanks end,
+		function(v) ns.db.alert.lowerRanks = v ns.Alert.Update() ns.Refresh() end,
+		"Off: only your best rank counts (and any better one you were given), so 40 Water won't hide that you're out of Fresh Water. On: every rank you're high enough to use counts.")
+	lower:SetPoint("TOPLEFT", body, "TOPLEFT", 34, -y)
+	body.lowerRanks = lower
+	y = y + 30
 	-- When it may show: three boxes that work as one choice.
 	local whenLabel = Text(body, "GameFontHighlight")
 	whenLabel:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 5)
@@ -1283,13 +1290,15 @@ end
 
 local tabs = {}
 local tabStyle, tabStrip, targetsBox
-local TAB_MIN, TAB_H, TAB_X, TAB_GAP = 72, 32, 8, 3
+local TAB_MIN, TAB_H, TAB_X, TAB_GAP, TAB_TUCK = 72, 32, 8, 3, 1
 local BOX_PAD = 6
 
 -- Water and Food sit in their own inset, the only part a profile changes, and the profile tabs hang
--- from its bottom border, 2 up into it like Blizzard's. Blizzard overlaps its tabs by 16, but the
--- tab art's visible edge sits right at the tab's frame (the side pieces carry their own margin), so
--- here they stand 3 apart, spread across the whole width.
+-- from its bottom border. Like a window's tabs they rest under it: the inset's border is drawn above
+-- them (a window's sits at frame level 500; the inset's shares the box's level, so it is raised) and
+-- their tops start 1 up, inside the 3 pixel line. Blizzard overlaps its tabs by 16, but the tab
+-- art's visible edge sits right at the tab's frame (the side pieces carry their own margin), so here
+-- they stand 3 apart, spread across the whole width.
 local function BuildTargetsBox()
 	local ok, box = pcall(CreateFrame, "Frame", nil, content, "InsetFrameTemplate")
 	if ok and box and box.NineSlice then
@@ -1300,9 +1309,12 @@ local function BuildTargetsBox()
 		local bg = box:CreateTexture(nil, "BACKGROUND")
 		bg:SetAllPoints()
 		bg:SetColorTexture(0, 0, 0, 0.35)
+		-- The lines get a frame of their own, like the template's NineSlice, so they can go over the tabs.
+		box.NineSlice = CreateFrame("Frame", nil, box)
+		box.NineSlice:SetAllPoints()
 		for _, edge in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
 			{ "TOPLEFT", "BOTTOMLEFT", false }, { "TOPRIGHT", "BOTTOMRIGHT", false } }) do
-			local line = box:CreateTexture(nil, "BORDER")
+			local line = box.NineSlice:CreateTexture(nil, "BORDER")
 			line:SetColorTexture(0.45, 0.4, 0.3, 0.9)
 			line:SetPoint(edge[1])
 			line:SetPoint(edge[2])
@@ -1345,7 +1357,7 @@ local function BuildTabs()
 		tab:SetText(def.label)
 		tab:ClearAllPoints()
 		if i == 1 then
-			tab:SetPoint("TOPLEFT", targetsBox, "BOTTOMLEFT", TAB_X, 2)
+			tab:SetPoint("TOPLEFT", targetsBox, "BOTTOMLEFT", TAB_X, TAB_TUCK)
 		elseif tabStyle == "PanelTabButtonTemplate" then
 			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", TAB_GAP, 0)
 		else
@@ -1394,6 +1406,12 @@ local function RefreshTabs()
 				if i == index then tab.bg:SetColorTexture(0.35, 0.28, 0.12, 1) else tab.bg:SetColorTexture(0.12, 0.1, 0.07, 0.95) end
 			end
 		end
+	end
+	-- And the box's border above every tab, so their tops rest under it.
+	if targetsBox and targetsBox.NineSlice then
+		local top = 0
+		for _, tab in ipairs(tabs) do top = math.max(top, tab:GetFrameLevel() or 0) end
+		targetsBox.NineSlice:SetFrameLevel(top + 1)
 	end
 end
 
