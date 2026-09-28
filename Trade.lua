@@ -295,8 +295,19 @@ end
 -- ------------------------------------------------------------------
 
 function T.Fill(m, full)
-	if not T.open then return false, "the trade window is not open" end
-	if ns.InCombat() then return false, "in combat" end
+	ns.Log("fill for " .. tostring(m and m.name) .. " starting" .. (full and " (whole share)" or ""))
+	if not T.open then
+		ns.Log("fill stopped: the trade window is not open")
+		return false, "the trade window is not open"
+	end
+	if ns.InCombat() then
+		ns.Log("fill stopped: in combat")
+		return false, "in combat"
+	end
+	if T.job then
+		ns.Log("fill stopped: one is already running")
+		return false, "a fill is already running"
+	end
 	local offer, free = T.ReadOffer()
 	local steps, short = {}, {}
 	for _, p in ipairs((T.Owed(m, full))) do
@@ -425,6 +436,70 @@ function T.Step()
 	ns.After(0.3, T.Step)
 end
 
+-- Whoever is on the other side of the trade, as a member: the group member when it is one, else
+-- read from the trade's own unit, so a share can be given to anyone.
+function T.PartnerAsMember()
+	if T.partner then return T.partner end
+	local guid = ns.Clean(UnitGUID("NPC"))
+	if not guid then return nil end
+	local _, class = UnitClass("NPC")
+	local level = ns.Clean(UnitLevel("NPC"))
+	return {
+		unit = "NPC", guid = guid, name = ns.Clean(UnitName("NPC")) or "?",
+		level = (type(level) == "number" and level > 0) and level or nil,
+		class = ns.Clean(class), connected = true,
+	}
+end
+
+-- A button under the game's trade window that puts their share in by hand: for when the automatic
+-- fill is off, didn't happen, or the other side isn't in your group. A share already handed over
+-- is given again whole, since the button is an explicit ask.
+local tradeButton
+function T.ShowTradeButton()
+	if not TradeFrame then
+		report["trade button"] = "no TradeFrame on this client"
+		return
+	end
+	if not tradeButton then
+		local ok, b = pcall(CreateFrame, "Button", "ConjurerTradeButton", TradeFrame, "UIPanelButtonTemplate")
+		if not (ok and b) then
+			b = CreateFrame("Button", "ConjurerTradeButton", TradeFrame)
+			local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			fs:SetAllPoints()
+			b:SetFontString(fs)
+			local bg = b:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints()
+			bg:SetColorTexture(0.3, 0.05, 0.05, 0.9)
+		end
+		b:SetSize(150, 22)
+		b:SetPoint("TOPLEFT", TradeFrame, "BOTTOMLEFT", 4, -2)
+		b:SetText("Conjurer: give share")
+		b:SetScript("OnClick", ns.Guard("trade give share", function()
+			local m = T.PartnerAsMember()
+			if not m then
+				ns.Print("Couldn't tell who the trade is with.")
+				return
+			end
+			if not T.partner then T.partner = m end
+			T.Fill(m, #(T.Owed(m)) == 0)
+		end))
+		b:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+			local m = T.PartnerAsMember()
+			GameTooltip:SetText("Give their share", 1, 1, 1)
+			if m then
+				GameTooltip:AddLine(m.name .. ": " .. T.ShareText(m), nil, nil, nil, true)
+			end
+			GameTooltip:AddLine("Puts it in the trade window. You still press Trade to finish.", 0.8, 0.8, 0.8, true)
+			GameTooltip:Show()
+		end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		tradeButton = b
+		report["trade button"] = "under the trade window"
+	end
+	tradeButton:Show()
+end
+
 -- Asks a member to trade, or fills the window when the trade with them is already open.
 function T.Request(m, full)
 	if ns.InCombat() then
@@ -494,9 +569,19 @@ ns.On("TRADE_SHOW", function()
 		.. (asked and (" (asked, " .. asked .. ")") or ""))
 	if fill then
 		ns.After(0.3, function()
-			if T.open and T.partner == m then T.Fill(m, asked == "full") end
+			-- Compared by GUID: the member table is rebuilt whenever the group is read again.
+			if not T.open then
+				ns.Log("fill for " .. m.name .. " skipped: the trade closed first")
+			elseif not (T.partner and T.partner.guid == m.guid) then
+				ns.Log("fill for " .. m.name .. " skipped: the trade is now with " .. tostring(T.partner and T.partner.name))
+			elseif T.job then
+				ns.Log("fill for " .. m.name .. " skipped: a fill is already running")
+			else
+				T.Fill(m, asked == "full")
+			end
 		end)
 	end
+	T.ShowTradeButton()
 	ns.Refresh()
 end)
 

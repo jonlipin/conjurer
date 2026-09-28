@@ -35,6 +35,24 @@ ns.FOOD = {
 	{ rank = 6, spell = 10145, item = 8076,  level = 45, name = "Conjured Sweet Roll" },
 	{ rank = 7, spell = 28612, item = 22895, level = 55, name = "Conjured Cinnamon Roll" },
 }
+-- How many items one cast makes (SpellEffect/SpellLevels, same build): base plus perLevel for each
+-- level above the rank's own, counting up to its maxLevel. Checked in game at level 8: rank 1
+-- water made 10 (2 + 2 x 4) and rank 1 food 6 (2 + 2 x 2).
+local YIELD = {
+	[5504] = { 2, 2, 4, 13 }, [5505] = { 2, 2, 10, 19 }, [5506] = { 2, 2, 20, 29 }, [6127] = { 2, 2, 30, 39 },
+	[10138] = { 2, 2, 40, 49 }, [10139] = { 2, 2, 50, 59 }, [10140] = { 10, 2, 60, 65 },
+	[587] = { 2, 2, 6, 15 }, [597] = { 2, 2, 12, 21 }, [990] = { 2, 2, 22, 31 }, [6129] = { 2, 2, 32, 41 },
+	[10144] = { 2, 2, 42, 51 }, [10145] = { 2, 2.25, 52, 61 }, [28612] = { 10, 2, 60, 65 },
+}
+
+-- The yield of one cast at a level, from the spell data.
+function ns.FormulaYield(entry, level)
+	local y = YIELD[entry.spell]
+	if not (y and type(level) == "number") then return nil end
+	local steps = math.max(0, math.min(level, y[4]) - y[3])
+	return math.floor(y[1] + y[2] * steps)
+end
+
 ns.KINDS = { water = ns.WATER, food = ns.FOOD }
 ns.KIND_ORDER = { "water", "food" }
 ns.KIND_LABEL = { water = "Water", food = "Food" }
@@ -525,6 +543,12 @@ local function Migrate(db)
 		db.profiles.solo.seeded = db.seeded
 	end
 	db.seeded = nil
+	-- Yields learned before 2026-09-28's fix came from single bag updates, which split a cast's
+	-- items across stacks (a water cast was once learned as 1). The spell data takes over again.
+	if (tonumber(db.yieldVersion) or 0) < 2 then
+		db.yield = {}
+		db.yieldVersion = 2
+	end
 end
 
 local function OpenDB()

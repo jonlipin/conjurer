@@ -445,7 +445,8 @@ function C.Arm()
 	end
 
 	C.armed = true
-	C.working, C.lastCount, C.early, C.inFlight = row, nil, nil, nil
+	C.working, C.early, C.inFlight = row, nil, nil
+	C.ResetRowWatch(row)
 	ns.Log("Ready is lit; hold to cast " .. (C.HoldReady() and "on" or "OFF (one cast per press)"))
 	if not C.HoldReady() then
 		ns.Print("Press and Hold Casting is off, so each press conjures once. Turn it on in Options > Combat to hold instead.")
@@ -469,7 +470,8 @@ function C.Disarm(reason)
 		C.GiveBackSettings()
 	end
 	C.placed = nil
-	C.working, C.lastCount, C.early, C.inFlight = nil, nil, nil, nil
+	C.working, C.early, C.inFlight = nil, nil, nil
+	C.ResetRowWatch()
 	C.hold.held = false
 	if reason then ns.Print(reason) end
 	ns.Log("Ready off: " .. tostring(reason) .. (C.pendingCleanup and " (button emptied after combat)" or ""))
@@ -495,12 +497,14 @@ end
 -- ------------------------------------------------------------------
 -- Moving on from row to row
 --
--- Seen in game (log of 2026-09-28): the client queues the next repeat of a held cast just before
--- the current one ends, and ends the hold once the button holds something else. A swap made after
--- a row's last cast has landed is one queued cast too late, so it made one conjure too many. So
--- Conjurer learns how many items one cast of each rank makes (it grows with your level) and, when
--- a cast that has just started will reach its row's target, swaps the button while that cast is
--- still going: the hold then ends exactly at the target. Either way the next row takes a new press.
+-- Seen in game (logs of 2026-09-28): the client queues the next repeat of a held cast as the
+-- current one ends, and ends the hold once the button holds something else. A cast's items reach
+-- the bags about a second after it lands, so while one cast is going the bags may not show the one
+-- before it yet. So when a cast starts, Conjurer counts what the bags hold, what has landed but not
+-- arrived, and what this cast will make; if that reaches the row's target, the button moves on
+-- while the cast is still going and the hold ends exactly at the target. The next row takes a new
+-- press. How much a cast makes comes from the spell data, and from what the bags show once two
+-- casts in a row agree.
 -- ------------------------------------------------------------------
 
 local function Level()
@@ -508,11 +512,11 @@ local function Level()
 	return type(level) == "number" and level or 0
 end
 
--- Items one cast of this rank makes at your level, once seen.
+-- Items one cast of this rank makes at your level: seen in game, else from the spell data.
 function C.Yield(entry)
 	local y = ns.db.yield and ns.db.yield[entry.spell]
 	if type(y) == "table" and y.level == Level() and tonumber(y.n) and y.n > 0 then return y.n end
-	return nil
+	return ns.FormulaYield(entry, Level())
 end
 
 local function Learn(entry, n)
@@ -521,7 +525,9 @@ local function Learn(entry, n)
 	local old = ns.db.yield[entry.spell]
 	if type(old) == "table" and old.n == n and old.level == Level() then return end
 	ns.db.yield[entry.spell] = { n = n, level = Level() }
-	ns.Log("learned: one " .. entry.name .. " cast makes " .. n .. " at level " .. Level())
+	local formula = ns.FormulaYield(entry, Level())
+	ns.Log("learned: one " .. entry.name .. " cast makes " .. n .. " at level " .. Level()
+		.. (formula and formula ~= n and (" (the spell data said " .. formula .. ")") or ""))
 end
 
 -- The row that comes after this one, as if this one were finished.
@@ -539,7 +545,9 @@ function C.CastStarted(spell, guid)
 	if not placed or placed.spell ~= spell then return end
 	C.inFlight = guid
 	local y = C.Yield(placed)
-	if not y or ns.Count(placed.item) + y < ns.Target(placed) then return end
+	if not y then return end
+	local expected = ns.Count(placed.item) + (C.landed or 0) * y + y
+	if expected < ns.Target(placed) then return end
 	local nextRow = NextRowAfter(placed)
 	local ok
 	if nextRow then ok = C.Place(nextRow) else ok = C.ClearSlot() end
@@ -562,20 +570,51 @@ function C.CastFailed(guid)
 	end
 end
 
--- Called whenever the bags change: learns the yield, announces a finished row, keeps the button
--- on the row being conjured, and finishes when nothing is left.
+-- A conjure of the row being worked on has landed; its items are on their way to the bags. The
+-- bags at each landing hold everything up to the cast before, so two landings apart is one cast's
+-- worth: two such differences that agree are learned.
+function C.CastLanded(spell)
+	local working = C.working
+	if not (C.armed and working and working.spell == spell) then return end
+	C.landed = (C.landed or 0) + 1
+	local now = ns.Count(working.item)
+	if C.lastLandedCount then
+		local delta = now - C.lastLandedCount
+		if delta > 0 and delta == C.lastDelta then Learn(working, delta) end
+		C.lastDelta = delta
+	end
+	C.lastLandedCount = now
+end
+
+-- Starts watching a row afresh: nothing landed, and the bags' count as it stands, so the first
+-- cast's items are seen arriving.
+local function ResetRowWatch(entry)
+	C.landed, C.lastLandedCount, C.lastDelta = 0, nil, nil
+	C.lastSeen = entry and ns.Count(entry.item) or nil
+end
+C.ResetRowWatch = ResetRowWatch
+
+-- Called whenever the bags change: announces a finished row, keeps the button on the row being
+-- conjured, and finishes when nothing is left.
 function C.Update()
 	if not C.armed or ns.InCombat() then return end
 	local working = C.working
 	if working then
 		local now = ns.Count(working.item)
-		if C.lastCount and now > C.lastCount then Learn(working, now - C.lastCount) end
-		C.lastCount = now
+		-- Items arrived: whatever had landed is in the bags now.
+		if C.lastSeen and now > C.lastSeen then C.landed = 0 end
+		C.lastSeen = now
+		-- The cast the button moved on for has landed and arrived without finishing the row (its
+		-- yield was guessed high): the row's spell goes back on the button.
+		if C.early and not C.inFlight and (C.landed or 0) == 0 and now < ns.Target(working) then
+			ns.Log("the cast " .. working.name .. " moved on for fell short (" .. now .. "/" .. ns.Target(working) .. "); its spell goes back on the button")
+			C.early = nil
+		end
 	end
 	local row = C.CurrentRow()
 	if working and row ~= working then
 		C.early = nil
-		C.lastCount = nil
+		ResetRowWatch(row)
 		if row and ns.Count(working.item) >= ns.Target(working) then
 			Chime("row")
 			Announce(ns.ShortName(working) .. " done. Let go, then hold " .. C.KeyText() .. " again for " .. ns.ShortName(row) .. ".")
@@ -660,6 +699,7 @@ castFrame:SetScript("OnEvent", ns.Guard("cast watch", function(_, event, unit, g
 		return
 	end
 	if guid and guid == C.inFlight then C.inFlight = nil end
+	C.CastLanded(spell)
 	ns.Log("cast " .. ns.BY_SPELL[spell].name .. (C.hold.held and " (key held)" or ""))
 	C.hold.casts = C.hold.casts + 1
 	if C.hold.held then

@@ -25,7 +25,7 @@ A Blizzard-style window with the Ready bar at the top and six sections you can f
 
 ## Profiles
 
-Every group size has its own targets: the tabs right under the Water and Food sliders switch which set of amounts the sliders show and Ready conjures to. Nothing else changes with the profile.
+Every group size has its own targets: Water and Food sit in their own box, and the tabs hanging from its bottom edge switch which set of amounts the sliders show and Ready conjures to. Nothing else changes with the profile.
 
 | Tab | When |
 |---|---|
@@ -52,9 +52,10 @@ like holding one of your action bar keys.
   the play button turns into a stop button.
 - Hold your key. The game keeps conjuring until the row reaches its target, then the hold stops.
   It chimes and says what's next: let go and hold again for the next row.
-- Conjurer learns how many items one cast makes (it grows with your level), so it can end the hold
-  exactly at the target: during the last cast it already moves the button on. The very first time
-  a rank is cast at a new level it can't know yet, so one cast may go over.
+- Conjurer knows how many items one cast makes (it grows with your level, from the spell data, and
+  it checks against what your bags show), so it ends the hold exactly at the target: when the last
+  cast starts, the button already moves on. It counts a cast that has landed but whose items haven't
+  reached your bags yet, which they do about a second later.
 - When every target is met, Ready switches itself off, the borrowed button is emptied and your key
   goes back to what it normally does.
 - Entering combat switches Ready off at once. A secure state driver also takes the key away the
@@ -81,6 +82,9 @@ When a group member opens a trade with you (or you click Trade on their row), th
 the trade window: the best rank they can use, in whole stacks where possible. A share that isn't
 whole stacks is split inside your bags first and then moved in. You still press the game's own
 Trade button to finish. What was handed over is counted only once the trade completes.
+
+A **Conjurer: give share** button hangs under the game's trade window: it puts the share in by hand,
+for anyone you trade (in your group or not), when the automatic fill is off or didn't happen.
 
 ## The eat and drink macro
 

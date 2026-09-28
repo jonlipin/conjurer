@@ -162,6 +162,7 @@ function CreateFrame(kind, name, parent, template)
   end
   if template == "UIPanelButtonTemplate" then f.fontString = obj("fontstring") end
   if template == "CooldownFrameTemplate" then f.SetCooldown = function(s, start, duration) s.cd = { start, duration } end end
+  if template == "InsetFrameTemplate" then f.NineSlice = obj("Frame") f.Bg = obj("texture") end
   if template == "PanelTabButtonTemplate" then
     f.Text = obj("fontstring") f.Left = obj("texture") f.Right = obj("texture")
     parent.Tabs = parent.Tabs or {}
@@ -481,7 +482,17 @@ end
 -- The group
 GROUP = {}
 RAID = false
-function MemberFor(unit) for _, m in ipairs(GROUP) do if m.unit == unit then return m end end end
+-- The trade's "NPC" unit is whoever TRADE_PARTNER names: a group member, or STRANGER.
+STRANGER = { guid = "Player-70-STRANGER", name = "Wander", level = 60, class = "WARRIOR" }
+function MemberFor(unit)
+  if unit == "NPC" then
+    for _, m in ipairs(GROUP) do if m.guid == TRADE_PARTNER then return m end end
+    if TRADE_PARTNER == STRANGER.guid then return STRANGER end
+    return nil
+  end
+  for _, m in ipairs(GROUP) do if m.unit == unit then return m end end
+end
+TradeFrame = obj("Frame", nil, "TradeFrame")
 function GetNumGroupMembers() if #GROUP == 0 then return 0 end return #GROUP + 1 end
 function IsInRaid() return RAID end
 function UnitExists(unit) return unit == "player" or MemberFor(unit) ~= nil end
@@ -638,13 +649,32 @@ function Hold(key, max)
   local spell = a and a.kind == "spell" and a.id
   local casts = 0
   local queued = spell ~= nil
+  -- A cast's items reach the bags about a second after it lands: during the next cast, or after
+  -- the key is let go.
+  local pendingItem, pendingN
+  local function Arrive()
+    if not pendingItem then return end
+    AddItems(pendingItem, pendingN)
+    pendingItem = nil
+    fire("BAG_UPDATE_DELAYED")
+    RunTimers(0)
+  end
   while queued and casts < (max or 100) do
     CAST_N = CAST_N + 1
     local guid = "Cast-" .. CAST_N
     fire("UNIT_SPELLCAST_START", "player", guid, spell)
     RunTimers(0)
+    Arrive()
     -- Something else changing in the bags while the cast is going (loot, a trade, food eaten).
     if BAG_UPDATE_MIDCAST then fire("BAG_UPDATE_DELAYED") RunTimers(0) end
+    -- One of what is being conjured drunk or eaten during this cast.
+    if EAT_DURING == casts + 1 then
+      local item = NS.BY_SPELL[spell].item
+      for bag = 0, 4 do for s, st in pairs(BAGS[bag]) do
+        if st.itemID == item and EAT_DURING then st.stackCount = st.stackCount - 1 EAT_DURING = nil if st.stackCount <= 0 then BAGS[bag][s] = nil end end
+      end end
+      fire("BAG_UPDATE_DELAYED") RunTimers(0)
+    end
     -- The queue point, just before the cast ends.
     local now = ACTIONS[slot]
     queued = now and now.kind == "spell" and now.id == spell and BINDINGS[key] ~= nil
@@ -655,13 +685,20 @@ function Hold(key, max)
       break
     end
     fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spell)
-    AddItems(NS.BY_SPELL[spell].item, YIELD)
-    fire("BAG_UPDATE_DELAYED")
     RunTimers(0)
+    pendingItem, pendingN = NS.BY_SPELL[spell].item, YieldOf(spell)
     casts = casts + 1
   end
   MultiActionButtonUp(barName, id)
+  Arrive()
   return casts
+end
+
+-- What one cast makes in this world: the spell data at the player's level, unless a test says
+-- the client makes something else.
+YIELD_OVERRIDE = {}
+function YieldOf(spell)
+  return YIELD_OVERRIDE[spell] or NS.FormulaYield(NS.BY_SPELL[spell], PLAYER_LEVEL)
 end
 `;
 
@@ -779,15 +816,17 @@ check("the play button turns into a stop button", P.readyButton.stop.shown and n
   and P.readyButton.stop.atlas == "charactercreate-customize-stopbutton")
 check("the slot is remembered for next time", ns.db.slot.bar == "MultiBar7" and ns.db.slot.index == 12)
 
+check("the spell data gives the yield before any cast", C.Yield(ns.WATER[7]) == 10 and C.Yield(ns.FOOD[6]) == 20
+  and ns.FormulaYield(ns.WATER[1], 8) == 10 and ns.FormulaYield(ns.FOOD[1], 8) == 6 and ns.FormulaYield(ns.WATER[1], 60) == 20)
 local casts = Hold("F", 100)
-check("one hold conjures the water row and stops there", casts == 10 and C.armed, casts)
+check("one hold conjures the water row and stops there", casts == 4 and C.armed, casts)
 check("exactly the water target: the button moved on during the last cast", C_Item.GetItemCount(8079) == 40, C_Item.GetItemCount(8079))
-check("it learned how much one cast makes", ns.db.yield[10140] and ns.db.yield[10140].n == 4 and ns.db.yield[10140].level == 60)
+check("the casts it saw agree with the spell data", ns.db.yield[10140] and ns.db.yield[10140].n == 10 and ns.db.yield[10140].level == 60)
 check("the button already holds the food", ACTIONS[180] and ACTIONS[180].id == 28612)
 check("the row change chimed", Played(878))
 check("and said to press again", ErrorWith("Crystal Water done. Let go, then hold F again for Cinnamon Roll."))
 casts = Hold("F", 100)
-check("the next hold conjures the food", casts == 5, casts)
+check("the next hold conjures the food", casts == 2, casts)
 check("exactly the food target", C_Item.GetItemCount(22895) == 20, C_Item.GetItemCount(22895))
 check("finishing chimed", Played(7355) and ErrorWith("All conjured"))
 check("Ready switched itself off", C.armed == false and ChatWith("Everything is conjured") == 1)
@@ -795,9 +834,9 @@ check("the binding is gone", BINDINGS.F == nil)
 check("the borrowed button is empty again", ACTIONS[180] == nil)
 check("hold to cast is back as it was", CVARS.ActionButtonUseKeyHeldSpell == "0" and ns.db.savedCVars == nil)
 check("the glow is off", P.readyGlow.shown == false and not P.readyAnim.playing)
-check("the report calls hold to cast working", C.hold.best == 10 and C.hold.presses == 2 and C.hold.releases == 2)
+check("the report calls hold to cast working", C.hold.best == 4 and C.hold.presses == 2 and C.hold.releases == 2)
 local reportText = table.concat(ns.DebugReport(), "\n")
-check("the debug report says so", reportText:find("hold to cast: works (10 casts in one hold)", 1, true) ~= nil)
+check("the debug report says so", reportText:find("hold to cast: works (4 casts in one hold)", 1, true) ~= nil)
 
 -- Nothing left: Ready refuses and says why.
 Click(P.readyButton)
@@ -806,43 +845,78 @@ check("the bar says so", P.readyTitle.text == "Nothing to conjure")
 check("and the play button greys out", P.readyButton.play.shown and P.readyButton.play.desaturated == true and P.readyButton.play.alpha < 1)
 
 -- Short hold, let go early, hold again.
-ns.Profile().water[7] = 60
+local base = C_Item.GetItemCount(8079)
+ns.Profile().water[7] = base + 40
 Click(P.readyButton)
 casts = Hold("F", 2)
-check("letting go stops the casting", casts == 2 and C.armed and C_Item.GetItemCount(8079) == 48)
+check("letting go stops the casting", casts == 2 and C.armed and C_Item.GetItemCount(8079) == base + 20)
 casts = Hold("F", 100)
-check("the next hold carries on to the target, not a cast past it", C_Item.GetItemCount(8079) == 60 and not C.armed, C_Item.GetItemCount(8079))
+check("the next hold carries on to the target, not a cast past it", casts == 2 and C_Item.GetItemCount(8079) == base + 40
+  and not C.armed, C_Item.GetItemCount(8079))
 
--- Before the yield is known, the button can only move on after the last cast has landed, by which
--- time the next one is queued: one cast too many, as the first test in game showed.
-local saved = ns.db.yield
+-- The client makes a different amount than the spell data says: guessed high, the button moves
+-- on a cast early and comes back; after two casts that agree it knows, and ends exactly.
 ns.db.yield = {}
-local base = C_Item.GetItemCount(8079)
-ns.Profile().water[7] = base + 4
+YIELD_OVERRIDE[10140] = 8
+base = C_Item.GetItemCount(8079)
+ns.Profile().water[7] = base + 40
+Click(P.readyButton)
+local holds, total = 0, 0
+while C.armed and holds < 6 do
+  total = total + Hold("F", 100)
+  holds = holds + 1
+end
+check("a yield the spell data gets wrong is learned", ns.db.yield[10140] and ns.db.yield[10140].n == 8, ns.db.yield[10140] and ns.db.yield[10140].n)
+check("and the row still ends exactly on its target", not C.armed and C_Item.GetItemCount(8079) == base + 40 and total == 5, total)
+YIELD_OVERRIDE[10140] = nil
+ns.db.yield = {}
+
+-- A drink taken mid-hold skews one difference; only two that agree are learned.
+base = C_Item.GetItemCount(8079)
+ns.Profile().water[7] = base + 50
+Click(P.readyButton)
+EAT_DURING = 3
+Hold("F", 100)
+EAT_DURING = nil
+check("a drink mid-hold doesn't teach a wrong yield", ns.db.yield[10140] and ns.db.yield[10140].n == 10
+  and not table.concat(ConjurerLog.entries, "\n"):find("makes 9", 1, true))
+if C.armed then Hold("F", 100) end
+if C.armed then C.Disarm() end
+ns.db.yield = {}
+
+-- Guessed too high on the finishing cast: the button went empty, the cast fell short, the spell
+-- comes back and one more press finishes.
+YIELD_OVERRIDE[10140] = 6
+base = C_Item.GetItemCount(8079)
+ns.Profile().water[7] = base + 10
 Click(P.readyButton)
 casts = Hold("F", 100)
-check("the first time, one queued cast goes over", casts == 2 and C_Item.GetItemCount(8079) == base + 8 and not C.armed, casts)
-ns.db.yield = saved
+check("a cast that falls short of the guess puts its spell back", casts == 1 and C.armed and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].id == 10140
+  and C_Item.GetItemCount(8079) == base + 6, casts)
+casts = Hold("F", 100)
+check("and the next press finishes the row", not C.armed and C_Item.GetItemCount(8079) >= base + 10)
+YIELD_OVERRIDE[10140] = nil
+ns.db.yield = {}
 
 -- The finishing cast interrupted: its spell goes back and the row carries on.
 base = C_Item.GetItemCount(8079)
-ns.Profile().water[7] = base + 8
+ns.Profile().water[7] = base + 20
 Click(P.readyButton)
 INTERRUPT_AT = 2
 casts = Hold("F", 100)
 check("an interrupted finishing cast puts its spell back", casts == 1 and C.armed and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].id == 10140)
 casts = Hold("F", 100)
-check("and the next press finishes the row exactly", casts == 1 and not C.armed and C_Item.GetItemCount(8079) == base + 8)
+check("and the next press finishes the row exactly", casts == 1 and not C.armed and C_Item.GetItemCount(8079) == base + 20, casts)
 
 -- Something else lands in the bags during the finishing cast: the early move holds.
 base = C_Item.GetItemCount(8079)
-ns.Profile().water[7] = base + 8
+ns.Profile().water[7] = base + 20
 Click(P.readyButton)
 BAG_UPDATE_MIDCAST = true
 casts = Hold("F", 100)
 BAG_UPDATE_MIDCAST = nil
 check("a bag change during the finishing cast doesn't undo the early move", casts == 2 and not C.armed
-  and C_Item.GetItemCount(8079) == base + 8, casts)
+  and C_Item.GetItemCount(8079) == base + 20, casts)
 
 -- Combat: Ready goes off before the lockdown.
 ns.Profile().water[7] = C_Item.GetItemCount(8079) + 40
@@ -1107,11 +1181,47 @@ ns.db.autoFill = true
 TRADE_PARTNER = "Player-70-STRANGER"
 fire("TRADE_SHOW")
 RunTimers(5)
-check("a stranger's trade is not filled", TRADE[1] == nil)
+check("a stranger's trade is not filled by itself", TRADE[1] == nil)
 fire("TRADE_ACCEPT_UPDATE", 1, 0)
 TradeComplete()
 RunTimers(2)
 check("or counted", ns.db.handed["Player-70-STRANGER"] == nil)
+check("the trade window has a Give share button hanging under it", ConjurerTradeButton and ConjurerTradeButton.parent == TradeFrame
+  and ConjurerTradeButton.points[1][2] == TradeFrame and ConjurerTradeButton.points[1][3] == "BOTTOMLEFT"
+  and ConjurerTradeButton.text == "Conjurer: give share")
+AddItems(22895, 20)
+fire("TRADE_SHOW")
+RunTimers(5)
+Click(ConjurerTradeButton)
+RunTimers(5)
+check("its button gives a stranger their class's share by hand", TRADE[1] and TRADE[1].itemID == 22895 and TRADE[1].count == 20)
+fire("TRADE_ACCEPT_UPDATE", 1, 0)
+TradeComplete()
+RunTimers(2)
+check("and that trade is counted", ns.db.handed["Player-70-STRANGER"] and ns.db.handed["Player-70-STRANGER"].food == 20)
+local tradeLog = table.concat(ConjurerLog.entries, "\n")
+check("each fill says it started", tradeLog:find("fill for Wander starting", 1, true) ~= nil and tradeLog:find("fill for Elyse starting", 1, true) ~= nil)
+-- The trade window reporting that it opened twice fills it once.
+TRADE_PARTNER = "Player-70-E1"
+ns.db.handed["Player-70-E1"] = nil
+ClearBags()
+AddItems(8079, 40)
+AddItems(22895, 20)
+fire("TRADE_SHOW")
+fire("TRADE_SHOW")
+RunTimers(5)
+check("opened twice, it's filled once", TRADE[1] and TRADE[2] and TRADE[3] and not TRADE[4]
+  and table.concat(ConjurerLog.entries, "\n"):find("fill for Elyse skipped: a fill is already running", 1, true) ~= nil)
+TradeCancel()
+RunTimers(2)
+
+-- A fill that can't go ahead says why in the log.
+TRADE_PARTNER = "Player-70-E1"
+ns.db.handed["Player-70-E1"] = nil
+fire("TRADE_SHOW")
+TradeCancel()
+RunTimers(5)
+check("a trade closed before its fill says so", table.concat(ConjurerLog.entries, "\n"):find("fill for Elyse skipped: the trade closed first", 1, true) ~= nil)
 
 -- Again gives a whole share once more.
 TRADE_PARTNER = "Player-70-E1"
@@ -1155,20 +1265,22 @@ RAID, GROUP = false, {}
 UI.Show() RunTimers(0)
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
 check("alone again, the profile goes back to Solo", ns.db.profile == "solo" and ChatWith("Profile: Solo.") == 1)
-local strip = P.tabStrip
-local function StripTop() return -strip.points[1][5] * (strip.scale or 1) end
-local function SharesTop() return -P.sections.shares.header.points[1][5] end
+local strip, box = P.tabStrip, P.targetsBox
+local function TopOf(f) return -f.points[1][5] end
+local function SharesTop() return TopOf(P.sections.shares.header) end
 local foodBody = P.sections.food.body
-check("eight profile tabs sit right under the Food sliders", #P.tabs == 8 and P.tabs[1].text == "Solo" and P.tabs[8].text == "AV 40"
-  and P.tabs[1].parent == strip and strip.parent == P.content
-  and StripTop() >= -foodBody.points[1][5] + foodBody.h and StripTop() + 32 * strip.scale <= SharesTop(), StripTop())
+check("Water and Food sit in their own inset", ns.report["targets box"] == "InsetFrameTemplate" and box.NineSlice ~= nil)
+check("the box wraps them with a margin", TopOf(box) + 6 == TopOf(P.sections.water.header) and TopOf(box) + box.h == TopOf(foodBody) + foodBody.h + 6 and P.sections.water.header.points[1][4] == 6 and P.sections.food.body.points[2][4] == -6)
+check("sections outside the box keep the full width", P.sections.shares.header.points[1][4] == 0)
+check("eight profile tabs hang from its bottom border", #P.tabs == 8 and P.tabs[1].text == "Solo" and P.tabs[8].text == "AV 40" and P.tabs[1].points[1][2] == box and P.tabs[1].points[1][3] == "BOTTOMLEFT" and P.tabs[1].points[1][4] == 11 and P.tabs[1].points[1][5] == 2)
+check("overlapping like Blizzard's", P.tabs[2].points[1][1] == "LEFT" and P.tabs[2].points[1][2] == P.tabs[1] and P.tabs[2].points[1][4] == -16)
 check("in Blizzard's tab template", ns.report["profile tabs"] == "PanelTabButtonTemplate" and #strip.Tabs == 8)
 check("Solo's tab is the selected one", SelectedTab() == 1)
-check("scaled just enough to fit the list", (8 * 72 + 7 * 3 + 4) * strip.scale <= P.content.w and strip.scale > 0.9, strip.scale)
+check("they fit the list at full size", 11 + 8 * 72 - 7 * 16 <= P.content.w and (strip.scale or 1) == 1)
+check("the next section starts below the tabs", SharesTop() >= TopOf(box) + box.h + 32)
 ns.db.collapsed.food = true
 UI.Refresh()
-check("with Food closed, the tabs move up under its header", StripTop() == -P.sections.food.header.points[1][5] + 30
-  and StripTop() + 32 * strip.scale < SharesTop())
+check("with Food closed, the box ends under its header and the tabs follow", TopOf(box) + box.h == TopOf(P.sections.food.header) + 26 + 6 and SharesTop() >= TopOf(box) + box.h + 32)
 ns.db.collapsed.food = false
 UI.Refresh()
 check("each profile has its own amounts at your best rank", ns.Profile("party").food[7] ~= nil and ns.Profile("raid40").water[7] == 300
@@ -1547,9 +1659,11 @@ check("it has the window's templates", all:find("window built: window template B
 check("it has Ready being lit", all:find("Ready is lit; hold to cast on", 1, true) ~= nil)
 check("it has the binding", all:find("bind F -> MULTIACTIONBAR7BUTTON12", 1, true) ~= nil)
 check("it has every cast", all:find("cast Conjured Crystal Water (key held)", 1, true) ~= nil)
-check("it has the row changing mid-hold", all:find("row done: Conjured Crystal Water 40/40; next Conjured Cinnamon Roll (key still held)", 1, true) ~= nil)
-check("it has the hold's length", all:find("key up after 10 conjures in this hold", 1, true) ~= nil)
-check("it has what it learned", all:find("learned: one Conjured Crystal Water cast makes 4 at level 60", 1, true) ~= nil)
+check("it has the row changing", all:find("row done: Conjured Crystal Water 40/40; next Conjured Cinnamon Roll", 1, true) ~= nil)
+check("it has the hold's length", all:find("key up after 4 conjures in this hold", 1, true) ~= nil)
+check("it has what it learned", all:find("learned: one Conjured Crystal Water cast makes 10 at level 60", 1, true) ~= nil)
+check("and when the spell data was wrong", all:find("learned: one Conjured Crystal Water cast makes 8 at level 60 (the spell data said 10)", 1, true) ~= nil)
+check("and when a guess fell short", all:find("fell short", 1, true) ~= nil)
 check("it has the early move", all:find("this cast finishes Conjured Crystal Water; the button now holds Conjured Cinnamon Roll, so the hold stops at the target", 1, true) ~= nil)
 check("it has Ready going off and why", all:find("Ready off: Everything is conjured. Ready is off.", 1, true) ~= nil)
 check("it has the settings changing and going back", all:find("setting ActionButtonUseKeyHeldSpell: turned on by Conjurer (was 0)", 1, true) ~= nil
@@ -1596,7 +1710,7 @@ SAVED = ConjurerDB
 // ------------------------------------------------------------------
 const scenarios = [
   { label: 'reload while lit', code: String.raw`
-    ConjurerDB = { savedCVars = { ActionButtonUseKeyHeldSpell = "0" }, seeded = true }
+    ConjurerDB = { savedCVars = { ActionButtonUseKeyHeldSpell = "0" }, seeded = true, yield = { [5504] = { n = 1, level = 8 } } }
     ConjurerLog = { session = 3, entries = { "#3 12:00:00 session end (logout or reload)" } }
     CVARS.ActionButtonUseKeyHeldSpell = "1"
     local ns = LoadConjurer()
@@ -1606,6 +1720,7 @@ const scenarios = [
     check("the log carries on in a new session", ConjurerLog.session == 4 and ConjurerLog.entries[1]:find("#3 ", 1, true) == 1
       and table.concat(ConjurerLog.entries, "\n"):find("#4 %d%d:%d%d:%d%d session start") ~= nil)
     check("the put-back is logged", table.concat(ConjurerLog.entries, "\n"):find("setting ActionButtonUseKeyHeldSpell put back to 0", 1, true) ~= nil)
+    check("a yield learned the old, noisy way is dropped once", next(ns.db.yield) == nil and ns.db.yieldVersion == 2)
     RunTimers(6)
     check("a report is taken a few seconds after login", ConjurerLog.reportAt and ConjurerLog.reportAt:find("(login)", 1, true) ~= nil)
   ` },
@@ -1748,6 +1863,9 @@ const bareDriver = driver
   .replace(/check\("and it's lit up while there's something to start"[^\n]*\n/, 'check("in full while there is something to start", P.readyButton.playText.alpha == 1)\n')
   .replace(/check\("the play button turns into a stop button"[^\n]*\n[^\n]*\n/, 'check("and Stop while lit", P.readyButton.playText.shown and P.readyButton.playText.text == "Stop")\n')
   .replace(/check\("and the play button greys out"[^\n]*\n/, 'check("and Start fades when there is nothing to start", P.readyButton.playText.text == "Start" and P.readyButton.playText.alpha < 1)\n')
+  .replace(/check\("Water and Food sit in their own inset"[^\n]*\n/, 'check("without the inset template Water and Food get a plain box", ns.report["targets box"] == "plain")\n')
+  .replace(/check\("overlapping like Blizzard's"[^\n]*\n/, 'check("plain tabs sit side by side", P.tabs[2].points[1][4] == 3)\n')
+  .replace(/check\("they fit the list at full size"[^\n]*\n/, 'check("they fit the list", 11 + 8 * 64 + 7 * 3 <= P.content.w)\n')
   .replace(/check\("in Blizzard's tab template"[^\n]*\n/, 'check("without the tab template the tabs are plain buttons", ns.report["profile tabs"] == "plain" and P.tabs[1].bg ~= nil)\n')
   .replace(/check\("it has the window's templates"[^\n]*\n/, 'check("it has the window\'s stand-ins", all:find("window built: window template plain; slider template plain", 1, true) ~= nil)\n')
   .replace(/check\("the combat guard is a secure state driver"[^\n]*\n/, 'check("without the secure template there is no state driver, and the report says so", #STATE_DRIVERS == 0 and ns.report["combat guard"]:find("none", 1, true) ~= nil)\n')

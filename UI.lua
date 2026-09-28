@@ -11,7 +11,7 @@ local report = ns.report
 local UI = {}
 ns.UI = UI
 
-local WIDTH, HEIGHT = 624, 640 -- wide enough that the eight profile tabs need little scaling
+local WIDTH, HEIGHT = 624, 640
 local ROW_H = 28
 local SLIDER_W = 178
 
@@ -1162,27 +1162,49 @@ end
 -- ------------------------------------------------------------------
 
 local tabs = {}
-local tabStyle, tabStrip
-local TAB_W, TAB_GAP, TAB_H = 72, 3, 32
+local tabStyle, tabStrip, targetsBox
+local TAB_W, TAB_OVERLAP, TAB_H = 72, 16, 32
+local BOX_PAD = 6
 
--- The profile tabs hang right under the Water and Food sliders, since those are the only thing a
--- profile changes. Eight Blizzard tabs are a little wider than the list, so the row is scaled to fit.
+-- Water and Food sit in their own inset, the only part a profile changes, and the profile tabs hang
+-- from its bottom border the way Blizzard's windows hang theirs: the first 11 in and 2 up, each
+-- next one overlapping the last by 16.
+local function BuildTargetsBox()
+	local ok, box = pcall(CreateFrame, "Frame", nil, content, "InsetFrameTemplate")
+	if ok and box and box.NineSlice then
+		report["targets box"] = "InsetFrameTemplate"
+	else
+		box = CreateFrame("Frame", nil, content)
+		box:SetFrameLevel(content:GetFrameLevel())
+		local bg = box:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0, 0, 0, 0.35)
+		for _, edge in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
+			{ "TOPLEFT", "BOTTOMLEFT", false }, { "TOPRIGHT", "BOTTOMRIGHT", false } }) do
+			local line = box:CreateTexture(nil, "BORDER")
+			line:SetColorTexture(0.45, 0.4, 0.3, 0.9)
+			line:SetPoint(edge[1])
+			line:SetPoint(edge[2])
+			if edge[3] then line:SetHeight(1) else line:SetWidth(1) end
+		end
+		report["targets box"] = "plain"
+	end
+	box:SetHeight(1)
+	targetsBox = box
+end
+
 local function BuildTabs()
 	tabStyle = "PanelTabButtonTemplate"
 	tabStrip = CreateFrame("Frame", nil, content)
 	tabStrip:SetHeight(TAB_H)
-	local total = #ns.PROFILES * TAB_W + (#ns.PROFILES - 1) * TAB_GAP + 4
-	tabStrip:SetWidth(total)
-	local fit = math.min(1, ((content:GetWidth() or total) - 4) / total)
-	tabStrip:SetScale(fit)
-	tabStrip.fit = fit
+	tabStrip:SetWidth(content:GetWidth() or 1)
 	for i, def in ipairs(ns.PROFILES) do
 		local ok, tab = pcall(CreateFrame, "Button", "ConjurerFrameTab" .. i, tabStrip, "PanelTabButtonTemplate")
 		if not (ok and tab and tab.Text and tab.Left) then
 			if ok and tab then tab:Hide() end
 			tabStyle = "plain"
 			tab = CreateFrame("Button", "ConjurerFrameTabPlain" .. i, tabStrip)
-			tab:SetSize(72, 24)
+			tab:SetSize(64, 24)
 			tab.bg = tab:CreateTexture(nil, "BACKGROUND")
 			tab.bg:SetAllPoints()
 			tab.bg:SetColorTexture(0.12, 0.1, 0.07, 0.95)
@@ -1198,9 +1220,11 @@ local function BuildTabs()
 		tab:SetText(def.label)
 		tab:ClearAllPoints()
 		if i == 1 then
-			tab:SetPoint("TOPLEFT", tabStrip, "TOPLEFT", 4, 0)
+			tab:SetPoint("TOPLEFT", targetsBox, "BOTTOMLEFT", 11, 2)
+		elseif tabStyle == "PanelTabButtonTemplate" then
+			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", -TAB_OVERLAP, 0)
 		else
-			tab:SetPoint("TOPLEFT", tabs[i - 1], "TOPRIGHT", TAB_GAP, 0)
+			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", 3, 0)
 		end
 		tab:SetScript("OnClick", Guard("profile tab", function()
 			Sound("IG_CHARACTER_INFO_TAB", 841)
@@ -1228,7 +1252,6 @@ local function BuildTabs()
 		end
 	end
 	report["profile tabs"] = tabStyle
-	report["profile tab scale"] = string.format("%.2f, under the Food sliders", fit)
 end
 
 local function RefreshTabs()
@@ -1284,6 +1307,7 @@ local function Build()
 	Place()
 	BuildReadyBar()
 	BuildScroll()
+	BuildTargetsBox()
 	BuildTabs()
 
 	for _, def in ipairs(SECTIONS) do
@@ -1325,11 +1349,12 @@ local function Build()
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
 		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs, tabStrip = tabStrip,
+		targetsBox = targetsBox,
 		announceBox = announceBox, announcePreview = announcePreview, announceMove = announceMove,
 	}
 	local used = {}
 	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
-		"section header art", "ready glow", "icon button art", "profile tabs" }) do
+		"section header art", "ready glow", "icon button art", "profile tabs", "targets box" }) do
 		used[#used + 1] = key .. " " .. tostring(report[key])
 	end
 	ns.Log("window built: " .. table.concat(used, "; "))
@@ -1351,22 +1376,34 @@ local function Build()
 	ns.Stage("idle")
 end
 
+-- Water and Food, the part a profile changes, go inside the targets box.
+local BOXED = { water = true, food = true }
+
 function UI.Layout()
 	local y = 0
+	local boxTop
 	for _, def in ipairs(SECTIONS) do
 		local s = sections[def.key]
+		local boxed = BOXED[def.key] and targetsBox ~= nil
+		local x = boxed and BOX_PAD or 0
+		if boxed and not boxTop then
+			boxTop = y
+			y = y + BOX_PAD
+		end
 		local collapsed = ns.db.collapsed[def.key] and true or false
 		s.header:ClearAllPoints()
-		s.header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
-		s.header:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
+		s.header:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y)
+		s.header:SetPoint("TOPRIGHT", content, "TOPRIGHT", -x, -y)
+		local bottom = y + 26
 		y = y + 28
 		if collapsed then
 			s.body:Hide()
 		else
 			s.body:ClearAllPoints()
-			s.body:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
-			s.body:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
+			s.body:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y)
+			s.body:SetPoint("TOPRIGHT", content, "TOPRIGHT", -x, -y)
 			s.body:Show()
+			bottom = y + (s.body:GetHeight() or 0)
 			y = y + (s.body:GetHeight() or 0) + 8
 		end
 		if s.header.Right then
@@ -1377,13 +1414,16 @@ function UI.Layout()
 		end
 		s.header.Summary:SetText(collapsed and SUMMARY[def.key]() or "")
 		if s.action then s.action:SetShown(not collapsed) end
-		-- The profile tabs, straight after the Food sliders (or its header, when it's closed).
-		if def.key == "food" and tabStrip then
-			local fit = tabStrip.fit or 1
-			if collapsed then y = y + 2 end
+		-- The box closes after Food; the profile tabs hang from its bottom border.
+		if def.key == "food" and boxTop then
+			local boxBottom = bottom + BOX_PAD
+			targetsBox:ClearAllPoints()
+			targetsBox:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -boxTop)
+			targetsBox:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -boxTop)
+			targetsBox:SetHeight(boxBottom - boxTop)
 			tabStrip:ClearAllPoints()
-			tabStrip:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y / fit)
-			y = y + TAB_H * fit + 8
+			tabStrip:SetPoint("TOPLEFT", targetsBox, "BOTTOMLEFT", 0, 0)
+			y = boxBottom + TAB_H + 6
 		end
 	end
 	content:SetHeight(math.max(y, 1))
