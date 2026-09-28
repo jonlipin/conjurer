@@ -33,16 +33,30 @@ like holding one of your action bar keys.
 
 - Click the **play** button on the Ready icon when you're set. It lights up like a spell alert and
   the play button turns into a stop button.
-- Hold your key. When a row reaches its target, it chimes and the button moves on to the next row.
-  If the game keeps the hold going across the change, one hold does everything.
+- Hold your key. The game keeps conjuring until the row reaches its target, then the hold stops.
+  It chimes and says what's next: let go and hold again for the next row.
+- Conjurer learns how many items one cast makes (it grows with your level), so it can end the hold
+  exactly at the target: during the last cast it already moves the button on. The very first time
+  a rank is cast at a new level it can't know yet, so one cast may go over.
 - When every target is met, Ready switches itself off, the borrowed button is emptied and your key
   goes back to what it normally does.
 - Entering combat switches Ready off at once. A secure state driver also takes the key away the
   moment combat starts, even if the addon itself is too late.
-- While Ready is lit, Conjurer turns on Press and Hold Casting and Cast on Key Down, and puts both
-  back to how you had them afterwards. If the game won't let it, each press conjures once.
 
 The key can be any key, with Shift, Ctrl or Alt, or a side mouse button.
+
+### Making sure the game's hold to cast is on
+
+Hold to cast needs two of the game's own settings: **Press and Hold Casting** and **Cast on Key
+Down** (Options > Combat). Conjurer looks after them in three ways:
+
+- **Options** shows whether each one is on right now, with a **Turn both on** button that switches
+  them on for good, the same as ticking them yourself.
+- When you click play, Conjurer turns on whichever is off (**Turn them on while Ready is lit**,
+  on by default) and puts them back afterwards, unless **Leave them on when Ready goes off** is
+  ticked.
+- If the game ever refuses the change, Conjurer says so, and each press conjures once until you
+  tick them in Options > Combat. The Ready bar says so too.
 
 ## Trading
 
@@ -61,9 +75,13 @@ rewrites it as your bags change, out of combat. Delete it and Conjurer leaves it
 
 When your conjured water or food drops below the amount you set (20 water and 10 food to start
 with), an icon for it appears, glowing like a spell alert, with how many you have left. It counts
-every rank you're high enough to use, only alerts for what you can conjure, and hides in combat.
-Click it to open Conjurer, right-click it to start conjuring, and drag it wherever you like (**Show
-it to move it** shows it so you can). A sound when it appears is optional.
+every rank you're high enough to use and only alerts for what you can conjure.
+
+- Next to it are a **play** button that starts conjuring (stop while it runs) and a **cog** that
+  opens Conjurer. Started from the alert, it stays up until conjuring stops, so stop stays in reach.
+- **Show it**: out of combat (the default), in combat, or always.
+- Click an icon to open Conjurer, right-click it to start or stop conjuring, and drag it wherever
+  you like (**Show it to move it** shows it so you can). A sound when it appears is optional.
 
 ## Commands
 

@@ -76,11 +76,13 @@ local DEFAULTS = {
 	includeRaid = true,
 	chime = true,
 	manageCVars = true,
+	leaveCVarsOn = false,
+	yield = {},
 	collapsed = { options = true },
 	minimap = { shown = true, angle = 200 },
 	handed = {},
 	macro = { perCharacter = true, auto = false, made = false },
-	alert = { enabled = true, water = 20, food = 10, sound = false },
+	alert = { enabled = true, water = 20, food = 10, sound = false, when = "out" },
 }
 
 local function Merge(into, from)
@@ -380,6 +382,7 @@ function ns.Refresh()
 	ns.After(0, function()
 		refreshQueued = false
 		if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+		if ns.Alert and ns.Alert.Refresh then ns.Alert.Refresh() end
 		if ns.Minimap and ns.Minimap.Refresh then ns.Minimap.Refresh() end
 	end)
 end

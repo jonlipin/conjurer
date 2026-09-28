@@ -217,6 +217,39 @@ function C.HoldReady()
 	return GetSetting("ActionButtonUseKeyHeldSpell") == "1" and GetSetting("ActionButtonUseKeyDown") ~= "0"
 end
 
+-- Both settings as they stand: "1", "0", or nil where this client has no such setting.
+function C.SettingState()
+	return GetSetting("ActionButtonUseKeyHeldSpell"), GetSetting("ActionButtonUseKeyDown")
+end
+
+-- Turns both on for good, as if ticked in Options > Combat, and forgets any value Ready was going
+-- to put back.
+function C.TurnSettingsOn()
+	if ns.InCombat() then
+		ns.Print("Change it out of combat.")
+		return false
+	end
+	local ok = true
+	for _, name in ipairs(CVARS) do
+		if GetSetting(name) ~= nil and GetSetting(name) ~= "1" then
+			ns.Stage("turning on " .. name)
+			local done = SetSetting(name, "1")
+			ns.Stage("idle")
+			ns.Log("setting " .. name .. " turned on for good: " .. (done and "ok" or "the client refused"))
+			ok = ok and done
+		end
+		if ns.db.savedCVars then ns.db.savedCVars[name] = nil end
+	end
+	if ns.db.savedCVars and not next(ns.db.savedCVars) then ns.db.savedCVars = nil end
+	if ok then
+		ns.Print("Press and Hold Casting and Cast on Key Down are on.")
+	else
+		ns.Print("The game didn't let Conjurer change it. Tick Press and Hold Casting in Options > Combat.")
+	end
+	ns.Refresh()
+	return ok
+end
+
 -- Turns both settings on while Ready is lit, remembering what they were. The memory is saved, so
 -- a reload in the middle still puts them back at the next login.
 function C.TakeSettings()
@@ -243,6 +276,11 @@ end
 function C.GiveBackSettings()
 	local saved = ns.db and ns.db.savedCVars
 	if not saved or ns.InCombat() then return end
+	if ns.db.leaveCVarsOn then
+		ns.Log("settings left on (the option to leave them on is ticked)")
+		ns.db.savedCVars = nil
+		return
+	end
 	for name, value in pairs(saved) do
 		local ok = SetSetting(name, value)
 		ns.Log("setting " .. name .. " put back to " .. tostring(value) .. (ok and "" or " (the client refused)"))
@@ -407,6 +445,7 @@ function C.Arm()
 	end
 
 	C.armed = true
+	C.working, C.lastCount, C.early, C.inFlight = row, nil, nil, nil
 	ns.Log("Ready is lit; hold to cast " .. (C.HoldReady() and "on" or "OFF (one cast per press)"))
 	if not C.HoldReady() then
 		ns.Print("Press and Hold Casting is off, so each press conjures once. Turn it on in Options > Combat to hold instead.")
@@ -430,6 +469,7 @@ function C.Disarm(reason)
 		C.GiveBackSettings()
 	end
 	C.placed = nil
+	C.working, C.lastCount, C.early, C.inFlight = nil, nil, nil, nil
 	C.hold.held = false
 	if reason then ns.Print(reason) end
 	ns.Log("Ready off: " .. tostring(reason) .. (C.pendingCleanup and " (button emptied after combat)" or ""))
@@ -452,27 +492,105 @@ function C.Rebind()
 	if not Bind() then C.Disarm("Couldn't bind " .. C.KeyText() .. ". Ready is off.") end
 end
 
--- Called whenever the bags change: moves the borrowed button on to the next row, or finishes.
+-- ------------------------------------------------------------------
+-- Moving on from row to row
+--
+-- Seen in game (log of 2026-09-28): the client queues the next repeat of a held cast just before
+-- the current one ends, and ends the hold once the button holds something else. A swap made after
+-- a row's last cast has landed is one queued cast too late, so it made one conjure too many. So
+-- Conjurer learns how many items one cast of each rank makes (it grows with your level) and, when
+-- a cast that has just started will reach its row's target, swaps the button while that cast is
+-- still going: the hold then ends exactly at the target. Either way the next row takes a new press.
+-- ------------------------------------------------------------------
+
+local function Level()
+	local level = ns.Clean(UnitLevel("player"))
+	return type(level) == "number" and level or 0
+end
+
+-- Items one cast of this rank makes at your level, once seen.
+function C.Yield(entry)
+	local y = ns.db.yield and ns.db.yield[entry.spell]
+	if type(y) == "table" and y.level == Level() and tonumber(y.n) and y.n > 0 then return y.n end
+	return nil
+end
+
+local function Learn(entry, n)
+	if n <= 0 or n > 60 then return end
+	ns.db.yield = ns.db.yield or {}
+	local old = ns.db.yield[entry.spell]
+	if type(old) == "table" and old.n == n and old.level == Level() then return end
+	ns.db.yield[entry.spell] = { n = n, level = Level() }
+	ns.Log("learned: one " .. entry.name .. " cast makes " .. n .. " at level " .. Level())
+end
+
+-- The row that comes after this one, as if this one were finished.
+local function NextRowAfter(entry)
+	for _, e in ipairs(C.Rows()) do
+		if e ~= entry and ns.Known(e.spell) and ns.Count(e.item) < ns.Target(e) then return e end
+	end
+	return nil
+end
+
+-- A conjure has just started. If it will reach its row's target, the button moves on now.
+function C.CastStarted(spell, guid)
+	if not C.armed or ns.InCombat() then return end
+	local placed = C.placed
+	if not placed or placed.spell ~= spell then return end
+	C.inFlight = guid
+	local y = C.Yield(placed)
+	if not y or ns.Count(placed.item) + y < ns.Target(placed) then return end
+	local nextRow = NextRowAfter(placed)
+	local ok
+	if nextRow then ok = C.Place(nextRow) else ok = C.ClearSlot() end
+	if ok then
+		C.early = placed
+		ns.Log("this cast finishes " .. placed.name .. "; the button " .. (nextRow and ("now holds " .. nextRow.name) or "is empty")
+			.. ", so the hold stops at the target")
+	end
+end
+
+-- The cast that was going to finish the row failed or was interrupted: the row isn't done, so its
+-- spell goes back on the button.
+function C.CastFailed(guid)
+	if not (C.armed and guid and guid == C.inFlight) then return end
+	C.inFlight = nil
+	if C.early then
+		ns.Log("the finishing cast of " .. C.early.name .. " didn't land; its spell goes back on the button")
+		C.early = nil
+		if C.working then PlaceSoon(C.working) end
+	end
+end
+
+-- Called whenever the bags change: learns the yield, announces a finished row, keeps the button
+-- on the row being conjured, and finishes when nothing is left.
 function C.Update()
 	if not C.armed or ns.InCombat() then return end
+	local working = C.working
+	if working then
+		local now = ns.Count(working.item)
+		if C.lastCount and now > C.lastCount then Learn(working, now - C.lastCount) end
+		C.lastCount = now
+	end
 	local row = C.CurrentRow()
+	if working and row ~= working then
+		C.early = nil
+		C.lastCount = nil
+		if row and ns.Count(working.item) >= ns.Target(working) then
+			Chime("row")
+			Announce(ns.ShortName(working) .. " done. Let go, then hold " .. C.KeyText() .. " again for " .. ns.ShortName(row) .. ".")
+			ns.Log("row done: " .. working.name .. " " .. ns.Count(working.item) .. "/" .. ns.Target(working) .. "; next "
+				.. row.name .. (C.hold.held and " (key still held)" or ""))
+		end
+	end
 	if not row then
 		Chime("done")
 		Announce("All conjured. You can let go.")
 		C.Disarm("Everything is conjured. Ready is off.")
 		return
 	end
-	if row ~= C.placed then
-		local was = C.placed
-		if was then
-			Chime("row")
-			Announce(ns.ShortName(was) .. " done. Next: " .. ns.ShortName(row) .. ".")
-			ns.Log("row done: " .. was.name .. " " .. ns.Count(was.item) .. "/" .. ns.Target(was) .. "; next "
-				.. row.name .. (C.hold.held and " (key still held)" or ""))
-		end
-		C.placed = nil
-		PlaceSoon(row)
-	end
+	C.working = row
+	if C.placed ~= row and not C.early then PlaceSoon(row) end
 end
 
 -- ------------------------------------------------------------------
@@ -483,13 +601,18 @@ function C.Status()
 	if not ns.isMage then return "Not a mage", "Conjurer only works on a mage." end
 	local row = C.armed and (C.placed or C.CurrentRow()) or C.CurrentRow()
 	if C.armed then
+		row = C.working or row
 		local detail = row and (ns.ShortName(row) .. ": " .. ns.Count(row.item) .. " of " .. ns.Target(row)) or "Finishing"
-		if not C.HoldReady() then detail = detail .. ". Press once per cast (hold to cast is off)" end
+		if not C.HoldReady() then detail = detail .. ". Hold to cast is off, so press once per cast" end
 		return "Ready: hold " .. C.KeyText(), detail
 	end
 	if not row then return "Nothing to conjure", "Every target is met. Raise a target to conjure more." end
-	return "Click play to start", "Then hold " .. C.KeyText() .. " to conjure. Next: " .. ns.ShortName(row) .. ", "
+	local detail = "Then hold " .. C.KeyText() .. " to conjure. Next: " .. ns.ShortName(row) .. ", "
 		.. ns.Count(row.item) .. " of " .. ns.Target(row) .. "."
+	if not C.HoldReady() and not ns.db.manageCVars then
+		detail = detail .. " Hold to cast is off in the game's options."
+	end
+	return "Click play to start", detail
 end
 
 -- ------------------------------------------------------------------
@@ -521,18 +644,29 @@ local function OnRelease(barName, id)
 	ns.Log("key up after " .. C.hold.current .. " conjure" .. (C.hold.current == 1 and "" or "s") .. " in this hold")
 end
 
+local CAST_EVENTS = { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_INTERRUPTED",
+	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET" }
+
 local castFrame = CreateFrame("Frame")
-castFrame:SetScript("OnEvent", function(_, _, unit, _, spell)
+castFrame:SetScript("OnEvent", ns.Guard("cast watch", function(_, event, unit, guid, spell)
 	if ns.Clean(unit) ~= "player" then return end
-	spell = ns.Clean(spell)
+	spell, guid = ns.Clean(spell), ns.Clean(guid)
 	if not (spell and ns.BY_SPELL[spell]) then return end
+	if event == "UNIT_SPELLCAST_START" then
+		C.CastStarted(spell, guid)
+		return
+	elseif event ~= "UNIT_SPELLCAST_SUCCEEDED" then
+		C.CastFailed(guid)
+		return
+	end
+	if guid and guid == C.inFlight then C.inFlight = nil end
 	ns.Log("cast " .. ns.BY_SPELL[spell].name .. (C.hold.held and " (key held)" or ""))
 	C.hold.casts = C.hold.casts + 1
 	if C.hold.held then
 		C.hold.current = C.hold.current + 1
 		if C.hold.current > C.hold.best then C.hold.best = C.hold.current end
 	end
-end)
+end))
 
 function C.Init()
 	Owner()
@@ -543,10 +677,12 @@ function C.Init()
 		if MultiActionButtonUp then pcall(hooksecurefunc, "MultiActionButtonUp", OnRelease) end
 		report["press watch"] = (MultiActionButtonDown and MultiActionButtonUp) and "hooked" or "no MultiActionButtonDown on this client"
 	end
-	if castFrame.RegisterUnitEvent then
-		pcall(castFrame.RegisterUnitEvent, castFrame, "UNIT_SPELLCAST_SUCCEEDED", "player")
-	else
-		pcall(castFrame.RegisterEvent, castFrame, "UNIT_SPELLCAST_SUCCEEDED")
+	for _, event in ipairs(CAST_EVENTS) do
+		if castFrame.RegisterUnitEvent then
+			pcall(castFrame.RegisterUnitEvent, castFrame, event, "player")
+		else
+			pcall(castFrame.RegisterEvent, castFrame, event)
+		end
 	end
 end
 

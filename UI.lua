@@ -665,7 +665,9 @@ local SUMMARY = {
 	group = function() return ns.Trade.Summary() end,
 	macro = function() return ns.Macro.Summary() end,
 	alert = function() return ns.Alert.Summary() end,
-	options = function() return "" end,
+	options = function()
+		return "Press and Hold Casting " .. (ns.Conjure.HoldReady() and "on" or "off")
+	end,
 }
 
 -- ------------------------------------------------------------------
@@ -962,6 +964,21 @@ local function BuildAlert(body)
 		body[kind .. "Slider"] = slider
 		y = y + ROW_H
 	end
+	-- When it may show: three boxes that work as one choice.
+	local whenLabel = Text(body, "GameFontHighlight")
+	whenLabel:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 5)
+	whenLabel:SetText("Show it")
+	local x = 110
+	body.when = {}
+	for _, when in ipairs(ns.Alert.WHEN) do
+		local label = ns.Alert.WHEN_LABEL[when]
+		local cb = NewCheck(body, label, function() return (ns.db.alert.when or "out") == when end,
+			function() ns.Alert.SetWhen(when) end, nil)
+		cb:SetPoint("TOPLEFT", body, "TOPLEFT", x, -y)
+		body.when[when] = cb
+		x = x + 30 + math.max(60, #label * 7)
+	end
+	y = y + 30
 	local sound = NewCheck(body, "Play a sound when it appears",
 		function() return ns.db.alert.sound end, function(v) ns.db.alert.sound = v end, nil)
 	sound:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
@@ -975,18 +992,36 @@ local function BuildAlert(body)
 	local hint = Text(body, "GameFontDisableSmall")
 	hint:SetPoint("LEFT", alertMove, "RIGHT", 10, 0)
 	hint:SetWidth(360)
-	hint:SetText("Drag it into place. Click it to open Conjurer; right-click starts conjuring.")
+	hint:SetText("Drag it into place. Its play button starts conjuring; the cog opens this window.")
 	y = y + 30
 	body:SetHeight(y + 4)
 end
 
+local settingsState, settingsButton
+
 local function BuildOptions(body)
-	local y = 4
+	local y = 6
+	-- The game's own hold to cast settings, as they stand, with a button to turn them on for good.
+	settingsState = Text(body, "GameFontHighlight")
+	settingsState:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y - 4)
+	settingsState:SetWidth(390)
+	settingsButton = NewButton(body, "Turn both on", 120, 22)
+	settingsButton:SetPoint("TOPRIGHT", body, "TOPRIGHT", -12, -y)
+	settingsButton:SetScript("OnClick", Guard("Turn both on", function()
+		ns.Conjure.TurnSettingsOn()
+		UI.Refresh()
+	end))
+	Tip(settingsButton, "Turn both on",
+		"Turns on Press and Hold Casting and Cast on Key Down in the game's options for good, the same as ticking them in Options > Combat.")
+	y = y + 30
 	local checks = {
-		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
-		{ "Turn on Press and Hold Casting while Ready is lit",
+		{ "Turn them on while Ready is lit",
 			function() return ns.db.manageCVars end, function(v) ns.db.manageCVars = v end,
-			"Also turns on Cast on Key Down, which hold to cast needs. Both go back to how you had them when Ready goes off." },
+			"When you click play, Conjurer turns on Press and Hold Casting and Cast on Key Down if they're off." },
+		{ "Leave them on when Ready goes off",
+			function() return ns.db.leaveCVarsOn end, function(v) ns.db.leaveCVarsOn = v end,
+			"Off: they go back to how you had them. On: they stay on." },
+		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
 		{ "Show the minimap button", function() return ns.db.minimap.shown end,
 			function(v) ns.db.minimap.shown = v if ns.Minimap then ns.Minimap.Apply() end end, nil },
 	}
@@ -1092,6 +1127,7 @@ local function Build()
 		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture,
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
+		settingsState = settingsState, settingsButton = settingsButton,
 	}
 	local used = {}
 	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
@@ -1193,6 +1229,15 @@ function UI.Refresh()
 	RefreshGroup(sections.group.body)
 	RefreshMacro()
 	alertMove:SetText(ns.Alert.preview and "Done moving" or "Show it to move it")
+
+	local held, down = C.SettingState()
+	local function Word(v)
+		if v == "1" then return "|cff66dd66on|r" end
+		if v == nil then return "|cff999999missing|r" end
+		return "|cffff5555off|r"
+	end
+	settingsState:SetText("Game options now: Press and Hold Casting " .. Word(held) .. ", Cast on Key Down " .. Word(down))
+	settingsButton:SetShown(held ~= "1" or down == "0")
 
 	local where = C.where or C.FindSlot()
 	optionsInfo:SetText(where

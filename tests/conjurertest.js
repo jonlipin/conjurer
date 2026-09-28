@@ -136,7 +136,8 @@ for _, a in ipairs({ "Options_ListExpand_Left", "_Options_ListExpand_Middle", "O
   "Options_ListExpand_Right_Expanded", "UI-HUD-ActionBar-IconFrame-Mask", "UI-HUD-ActionBar-IconFrame",
   "UI-HUD-ActionBar-IconFrame-Down", "UI-HUD-ActionBar-IconFrame-Mouseover", "UI-HUD-ActionBar-Proc-Loop-Flipbook",
   "classicon-mage", "classicon-priest", "classicon-warrior", "classicon-hunter", "classicon-warlock",
-  "charactercreate-customize-playbutton", "charactercreate-customize-stopbutton" }) do
+  "charactercreate-customize-playbutton", "charactercreate-customize-stopbutton",
+  "gm-icon-settings", "gm-icon-settings-pressed", "gm-icon-settings-hover" }) do
   KNOWN_ATLASES[a] = true
 end
 C_Texture = { GetAtlasInfo = function(a) if BAD_ATLAS then return nil end return KNOWN_ATLASES[a] and { width = 10 } or nil end }
@@ -582,9 +583,13 @@ function KnowAll() for _, list in pairs({ NS and NS.WATER or {}, NS and NS.FOOD 
 function Played(id) for _, p in ipairs(PLAYED) do if p == id then return true end end return false end
 function Click(button, which) button.scripts.OnClick(button, which or "LeftButton") RunTimers(0) end
 
--- A hold: the bar button is pressed and the game casts whatever it holds, once per cast, until
--- the button is empty, the key is let go after max casts, or the binding is gone.
+-- A hold, the way the client behaved in the first in-game test (log of 2026-09-28): the key goes
+-- down and the game casts what the button holds. Just before each cast ends it queues the next
+-- repeat of that same spell, if the button still holds it; once the button holds something else
+-- (or nothing) the hold ends after the cast in progress. The key is let go after max casts.
+-- INTERRUPT_AT makes that cast fail instead of landing.
 YIELD = 4
+CAST_N = 0
 function Hold(key, max)
   local bind = BINDINGS[key]
   if not bind then return 0 end
@@ -594,13 +599,28 @@ function Hold(key, max)
   id = tonumber(id)
   local slot = _G[barName].actionButtons[id].action
   MultiActionButtonDown(barName, id)
+  local a = ACTIONS[slot]
+  local spell = a and a.kind == "spell" and a.id
   local casts = 0
-  for i = 1, max or 100 do
-    local a = ACTIONS[slot]
-    if not a or a.kind ~= "spell" or not BINDINGS[key] then break end
-    local entry = NS.BY_SPELL[a.id]
-    AddItems(entry.item, YIELD)
-    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-" .. i, a.id)
+  local queued = spell ~= nil
+  while queued and casts < (max or 100) do
+    CAST_N = CAST_N + 1
+    local guid = "Cast-" .. CAST_N
+    fire("UNIT_SPELLCAST_START", "player", guid, spell)
+    RunTimers(0)
+    -- Something else changing in the bags while the cast is going (loot, a trade, food eaten).
+    if BAG_UPDATE_MIDCAST then fire("BAG_UPDATE_DELAYED") RunTimers(0) end
+    -- The queue point, just before the cast ends.
+    local now = ACTIONS[slot]
+    queued = now and now.kind == "spell" and now.id == spell and BINDINGS[key] ~= nil
+    if INTERRUPT_AT and INTERRUPT_AT == casts + 1 then
+      INTERRUPT_AT = nil
+      fire("UNIT_SPELLCAST_INTERRUPTED", "player", guid, spell)
+      RunTimers(0)
+      break
+    end
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spell)
+    AddItems(NS.BY_SPELL[spell].item, YIELD)
     fire("BAG_UPDATE_DELAYED")
     RunTimers(0)
     casts = casts + 1
@@ -725,20 +745,24 @@ check("the play button turns into a stop button", P.readyButton.stop.shown and n
 check("the slot is remembered for next time", ns.db.slot.bar == "MultiBar7" and ns.db.slot.index == 12)
 
 local casts = Hold("F", 100)
-check("one long hold conjures the water and then the food", casts == 15, casts)
-check("exactly the water target", C_Item.GetItemCount(8079) == 40, C_Item.GetItemCount(8079))
-check("exactly the food target", C_Item.GetItemCount(22895) == 20, C_Item.GetItemCount(22895))
+check("one hold conjures the water row and stops there", casts == 10 and C.armed, casts)
+check("exactly the water target: the button moved on during the last cast", C_Item.GetItemCount(8079) == 40, C_Item.GetItemCount(8079))
+check("it learned how much one cast makes", ns.db.yield[10140] and ns.db.yield[10140].n == 4 and ns.db.yield[10140].level == 60)
+check("the button already holds the food", ACTIONS[180] and ACTIONS[180].id == 28612)
 check("the row change chimed", Played(878))
-check("and said so on screen", ErrorWith("Crystal Water done. Next: Cinnamon Roll."))
+check("and said to press again", ErrorWith("Crystal Water done. Let go, then hold F again for Cinnamon Roll."))
+casts = Hold("F", 100)
+check("the next hold conjures the food", casts == 5, casts)
+check("exactly the food target", C_Item.GetItemCount(22895) == 20, C_Item.GetItemCount(22895))
 check("finishing chimed", Played(7355) and ErrorWith("All conjured"))
 check("Ready switched itself off", C.armed == false and ChatWith("Everything is conjured") == 1)
 check("the binding is gone", BINDINGS.F == nil)
 check("the borrowed button is empty again", ACTIONS[180] == nil)
 check("hold to cast is back as it was", CVARS.ActionButtonUseKeyHeldSpell == "0" and ns.db.savedCVars == nil)
 check("the glow is off", P.readyGlow.shown == false and not P.readyAnim.playing)
-check("the report calls hold to cast working", C.hold.best >= 2 and C.hold.presses == 1 and C.hold.releases == 1)
+check("the report calls hold to cast working", C.hold.best == 10 and C.hold.presses == 2 and C.hold.releases == 2)
 local reportText = table.concat(ns.DebugReport(), "\n")
-check("the debug report says so", reportText:find("hold to cast: works (15 casts in one hold)", 1, true) ~= nil)
+check("the debug report says so", reportText:find("hold to cast: works (10 casts in one hold)", 1, true) ~= nil)
 
 -- Nothing left: Ready refuses and says why.
 Click(P.readyButton)
@@ -752,10 +776,41 @@ Click(P.readyButton)
 casts = Hold("F", 2)
 check("letting go stops the casting", casts == 2 and C.armed and C_Item.GetItemCount(8079) == 48)
 casts = Hold("F", 100)
-check("the next hold carries on to the target", C_Item.GetItemCount(8079) == 60 and not C.armed, C_Item.GetItemCount(8079))
+check("the next hold carries on to the target, not a cast past it", C_Item.GetItemCount(8079) == 60 and not C.armed, C_Item.GetItemCount(8079))
+
+-- Before the yield is known, the button can only move on after the last cast has landed, by which
+-- time the next one is queued: one cast too many, as the first test in game showed.
+local saved = ns.db.yield
+ns.db.yield = {}
+local base = C_Item.GetItemCount(8079)
+ns.db.targets.water[7] = base + 4
+Click(P.readyButton)
+casts = Hold("F", 100)
+check("the first time, one queued cast goes over", casts == 2 and C_Item.GetItemCount(8079) == base + 8 and not C.armed, casts)
+ns.db.yield = saved
+
+-- The finishing cast interrupted: its spell goes back and the row carries on.
+base = C_Item.GetItemCount(8079)
+ns.db.targets.water[7] = base + 8
+Click(P.readyButton)
+INTERRUPT_AT = 2
+casts = Hold("F", 100)
+check("an interrupted finishing cast puts its spell back", casts == 1 and C.armed and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].id == 10140)
+casts = Hold("F", 100)
+check("and the next press finishes the row exactly", casts == 1 and not C.armed and C_Item.GetItemCount(8079) == base + 8)
+
+-- Something else lands in the bags during the finishing cast: the early move holds.
+base = C_Item.GetItemCount(8079)
+ns.db.targets.water[7] = base + 8
+Click(P.readyButton)
+BAG_UPDATE_MIDCAST = true
+casts = Hold("F", 100)
+BAG_UPDATE_MIDCAST = nil
+check("a bag change during the finishing cast doesn't undo the early move", casts == 2 and not C.armed
+  and C_Item.GetItemCount(8079) == base + 8, casts)
 
 -- Combat: Ready goes off before the lockdown.
-ns.db.targets.water[7] = 80
+ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 40
 Click(P.readyButton)
 fire("PLAYER_REGEN_DISABLED")
 RunTimers(0)
@@ -836,7 +891,7 @@ LOCKED_CVARS.ActionButtonUseKeyHeldSpell = true
 ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 8
 Click(P.readyButton)
 check("a locked setting doesn't stop Ready", C.armed and CVARS.ActionButtonUseKeyHeldSpell == "0")
-check("it says to press once per cast", ChatWith("each press conjures once") == 1 and P.readyDetail.text:find("Press once per cast", 1, true) ~= nil)
+check("it says to press once per cast", ChatWith("each press conjures once") == 1 and P.readyDetail.text:find("Hold to cast is off, so press once per cast", 1, true) ~= nil)
 check("and the report says the client refused", ns.report["setting ActionButtonUseKeyHeldSpell"] == "the client refused to change it")
 Click(P.readyButton)
 LOCKED_CVARS.ActionButtonUseKeyHeldSpell = nil
@@ -844,7 +899,37 @@ ns.db.manageCVars = false
 Click(P.readyButton)
 check("with the option off the settings are left alone", CVARS.ActionButtonUseKeyHeldSpell == "0" and ns.db.savedCVars == nil)
 Click(P.readyButton)
+UI.Refresh()
+check("and the Ready bar says hold to cast is off", P.readyDetail.text:find("Hold to cast is off in the game's options.", 1, true) ~= nil)
 ns.db.manageCVars = true
+
+-- The game's settings, shown and switched in Options.
+UI.Refresh()
+check("Options shows the game's settings as they stand", P.settingsState.text:find("Press and Hold Casting |cffff5555off|r", 1, true) ~= nil
+  and P.settingsButton.shown)
+ns.db.collapsed.options = true
+UI.Refresh()
+check("closed, Options says whether hold to cast is on", P.sections.options.header.Summary.text == "Press and Hold Casting off")
+Click(P.settingsButton)
+check("Turn both on turns them on for good", CVARS.ActionButtonUseKeyHeldSpell == "1" and ChatWith("Press and Hold Casting and Cast on Key Down are on.") == 1)
+check("and the button goes", not P.settingsButton.shown and P.settingsState.text:find("Press and Hold Casting |cff66dd66on|r", 1, true) ~= nil)
+ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 40
+Click(P.readyButton)
+Click(P.readyButton)
+check("settings already on are left on by Ready", CVARS.ActionButtonUseKeyHeldSpell == "1" and ns.db.savedCVars == nil)
+CVARS.ActionButtonUseKeyHeldSpell = "0"
+LOCKED_CVARS.ActionButtonUseKeyHeldSpell = true
+UI.Refresh()
+Click(P.settingsButton)
+check("refused, it says where to tick it", ChatWith("Tick Press and Hold Casting in Options > Combat") == 1 and CVARS.ActionButtonUseKeyHeldSpell == "0")
+LOCKED_CVARS.ActionButtonUseKeyHeldSpell = nil
+ns.db.leaveCVarsOn = true
+Click(P.readyButton)
+check("Ready turns them on", C.armed and CVARS.ActionButtonUseKeyHeldSpell == "1")
+Click(P.readyButton)
+check("with Leave them on ticked they stay on", CVARS.ActionButtonUseKeyHeldSpell == "1" and ns.db.savedCVars == nil)
+ns.db.leaveCVarsOn = false
+CVARS.ActionButtonUseKeyHeldSpell = "0"
 
 -- ---- The key ----------------------------------------------------------
 Click(P.keyButton)
@@ -1052,6 +1137,7 @@ check("another addon's is not", #ns.refused == 1)
 
 -- ---- The low food and water alert --------------------------------------------
 if C.armed then C.Disarm() end
+UI.Show() RunTimers(0)
 local Al = ns.Alert
 ClearBags()
 AddItems(8079, 40)
@@ -1067,18 +1153,36 @@ check("low on water, the water alert shows", ConjurerAlertWater:IsVisible() and 
 check("with how many are left", tostring(ConjurerAlertWater.count.text) == "5")
 check("its icon is the best water", ConjurerAlertWater.icon.texture == "itemicon:8079")
 check("and the proc glow", ConjurerAlertWater.glow.shown and ConjurerAlertWater.anim.playing)
-check("the alert is one icon wide", ConjurerAlert.w == 40)
+check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + 24, ConjurerAlert.w)
+check("with a play button and a cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
+check("in Blizzard's art", (ConjurerAlertPlay.art.atlas == "charactercreate-customize-playbutton" and ConjurerAlertSettings.art.atlas == "gm-icon-settings")
+  or (BARE and ConjurerAlertPlay.label.text == "Go"))
 check("no sound unless asked for", not Played(3175))
 check("the log says when it came up", table.concat(ConjurerLog.entries, "\n"):find("alert: water low, 5 left (alert below 20)", 1, true) ~= nil)
 ClearBags()
 AddItems(8079, 5)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
-check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86
+check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 30
   and ConjurerAlertWater.points[1][4] == 0 and ConjurerAlertFood.points[1][4] == 46)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("hidden in combat", not ConjurerAlert.shown)
 fire("PLAYER_REGEN_ENABLED") RunTimers(0)
 check("back after it", ConjurerAlert.shown)
+Click(P.sections.alert.body.when["in"])
+check("set to in combat, it hides out of combat", ns.db.alert.when == "in" and not ConjurerAlert.shown)
+check("and the three boxes act as one choice", P.sections.alert.body.when["in"].checked and not P.sections.alert.body.when.out.checked)
+fire("PLAYER_REGEN_DISABLED") RunTimers(0)
+check("and shows in combat", ConjurerAlert.shown)
+check("where its play button greys out, since conjuring can't start in a fight", ConjurerAlertPlay.alpha == 0.5 and ConjurerAlertPlay.art.desaturated == true)
+fire("PLAYER_REGEN_ENABLED") RunTimers(0)
+Click(P.sections.alert.body.when.always)
+check("set to always, it shows out of combat", ns.db.alert.when == "always" and ConjurerAlert.shown)
+fire("PLAYER_REGEN_DISABLED") RunTimers(0)
+check("and in combat", ConjurerAlert.shown)
+fire("PLAYER_REGEN_ENABLED") RunTimers(0)
+check("and its play button is live again out of combat", ConjurerAlertPlay.alpha == 1)
+Click(P.sections.alert.body.when.out)
+check("back to out of combat", ns.db.alert.when == "out" and P.sections.alert.body.when.out.checked and not P.sections.alert.body.when.always.checked)
 ns.db.alert.sound = true
 AddItems(8079, 40)
 fire("BAG_UPDATE_DELAYED")
@@ -1107,13 +1211,29 @@ check("switched off, it stays hidden", not ConjurerAlert.shown)
 ns.db.alert.enabled = true
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 ns.db.targets.water[7] = 40
+Click(ConjurerAlertPlay)
+check("its play button starts conjuring", C.armed)
+check("and turns into a stop button", ConjurerAlertPlay.art.atlas == "charactercreate-customize-stopbutton"
+  or (BARE and ConjurerAlertPlay.label.text == "Stop"))
+AddItems(8079, 30)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("started from the alert, it stays up while conjuring runs", ConjurerAlertWater:IsVisible() and tostring(ConjurerAlertWater.count.text) == "30")
+check("without the glow once it isn't low", not ConjurerAlertWater.glow.shown)
+Click(ConjurerAlertPlay)
+check("its stop button stops conjuring, and then the alert goes", not C.armed and not ConjurerAlert.shown)
+ClearBags()
+AddItems(22895, 20)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
 ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "RightButton") RunTimers(0)
-check("right-clicking it starts conjuring", C.armed)
+check("right-clicking an icon does the same", C.armed)
 ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "RightButton") RunTimers(0)
 check("and again stops", not C.armed)
 ConjurerFrame:Hide()
+Click(ConjurerAlertSettings)
+check("the cog opens Conjurer", ConjurerFrame.shown)
+ConjurerFrame:Hide()
 ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "LeftButton") RunTimers(0)
-check("clicking it opens Conjurer", ConjurerFrame.shown)
+check("so does clicking an icon", ConjurerFrame.shown)
 ns.db.alert.point = nil
 ConjurerAlertWater.scripts.OnDragStop(ConjurerAlertWater)
 check("dragging it saves where it is", type(ns.db.alert.point) == "table" and ns.db.alert.point[1] == "CENTER")
@@ -1134,7 +1254,7 @@ RunTimers(0)
 check("the slider sets the water threshold", ns.db.alert.water == 30)
 ns.db.collapsed.alert = true
 UI.Refresh()
-check("closed, the section sums it up", P.sections.alert.header.Summary.text == "water below 30, food below 10", P.sections.alert.header.Summary.text)
+check("closed, the section sums it up", P.sections.alert.header.Summary.text == "water below 30, food below 10, out of combat", P.sections.alert.header.Summary.text)
 ns.db.collapsed.alert = false
 ns.db.alert.water = 20
 UI.Refresh()
@@ -1206,7 +1326,9 @@ check("it has Ready being lit", all:find("Ready is lit; hold to cast on", 1, tru
 check("it has the binding", all:find("bind F -> MULTIACTIONBAR7BUTTON12", 1, true) ~= nil)
 check("it has every cast", all:find("cast Conjured Crystal Water (key held)", 1, true) ~= nil)
 check("it has the row changing mid-hold", all:find("row done: Conjured Crystal Water 40/40; next Conjured Cinnamon Roll (key still held)", 1, true) ~= nil)
-check("it has the hold's length", all:find("key up after 15 conjures in this hold", 1, true) ~= nil)
+check("it has the hold's length", all:find("key up after 10 conjures in this hold", 1, true) ~= nil)
+check("it has what it learned", all:find("learned: one Conjured Crystal Water cast makes 4 at level 60", 1, true) ~= nil)
+check("it has the early move", all:find("this cast finishes Conjured Crystal Water; the button now holds Conjured Cinnamon Roll, so the hold stops at the target", 1, true) ~= nil)
 check("it has Ready going off and why", all:find("Ready off: Everything is conjured. Ready is off.", 1, true) ~= nil)
 check("it has the settings changing and going back", all:find("setting ActionButtonUseKeyHeldSpell: turned on by Conjurer (was 0)", 1, true) ~= nil
   and all:find("setting ActionButtonUseKeyHeldSpell put back to 0", 1, true) ~= nil)
