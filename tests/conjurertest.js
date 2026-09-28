@@ -579,11 +579,6 @@ function ErrorWith(text)
 end
 function KnowAll() for _, list in pairs({ NS and NS.WATER or {}, NS and NS.FOOD or {} }) do for _, e in ipairs(list) do KNOWN[e.spell] = true end end end
 function Played(id) for _, p in ipairs(PLAYED) do if p == id then return true end end return false end
--- Whether a slider takes input, whichever template it came from.
-function SliderOn(holder)
-  if holder.sliderEnabled ~= nil then return holder.sliderEnabled end
-  return holder.Slider.enabled
-end
 function Click(button, which) button.scripts.OnClick(button, which or "LeftButton") RunTimers(0) end
 
 -- A hold: the bar button is pressed and the game casts whatever it holds, once per cast, until
@@ -665,6 +660,7 @@ check("the Ready glow is the spell alert flipbook", ns.report["ready glow"] == "
 
 local waterRows = P.rankRows.water
 check("seven water rows, best rank first", #waterRows == 7 and waterRows[1].entry.rank == 7 and waterRows[7].entry.rank == 1)
+check("with every rank learned all seven show", waterRows[1].shown and waterRows[7].shown and P.sections.water.body.h == 2 + 7 * 28 + 2)
 check("names drop the word Conjured", waterRows[1].name.text == "Crystal Water", waterRows[1].name.text)
 check("each row says the level needed", waterRows[1].level.text == "Level 55" and waterRows[7].level.text == "Level 1")
 check("and how many you have", waterRows[1].have.text == "Have 0")
@@ -1188,11 +1184,25 @@ const scenarios = [
     check("a young mage's stock is planned at the ranks it knows", ns.db.targets.water[3] == 40 and ns.db.targets.food[3] == 20
       and (ns.db.targets.water[7] or 0) == 0)
     ns.UI.Toggle() RunTimers(0)
-    local row = ns.UI.parts.rankRows.water[1]
-    check("ranks not learned are marked and greyed", row.name.text == "Crystal Water  (not learned)" and row.icon.desaturated == true
-      and SliderOn(row.slider) == false)
-    check("known ones are live", SliderOn(ns.UI.parts.rankRows.water[5].slider) == true)
+    local rows = ns.UI.parts.rankRows.water
+    local body = ns.UI.parts.sections.water.body
+    check("ranks not learned are not shown", not rows[1].shown and not rows[2].shown and not rows[3].shown and not rows[4].shown)
+    check("the learned ones are", rows[5].shown and rows[6].shown and rows[7].shown and rows[5].name.text == "Purified Water")
+    check("closed up at the top, best first", rows[5].points[1][5] == -2 and rows[6].points[1][5] == -30 and rows[7].points[1][5] == -58)
+    check("the section is only as tall as those rows", body.h == 2 + 3 * 28 + 2, body.h)
+    check("with no empty-list line", body.empty.shown == false)
     ns.db.targets.water[7] = 40
+    ns.db.collapsed.water = true
+    ns.UI.Refresh()
+    check("a closed section counts only learned ranks", ns.UI.parts.sections.water.header.Summary.text == "1 rank, 0 of 40",
+      ns.UI.parts.sections.water.header.Summary.text)
+    ns.db.collapsed.water = false
+    KNOWN[ns.WATER[4].spell] = true
+    fire("SPELLS_CHANGED") RunTimers(0)
+    check("learning a rank adds its row at the top", rows[4].shown and rows[4].points[#rows[4].points][5] == -2
+      and rows[5].points[#rows[5].points][5] == -30 and body.h == 2 + 4 * 28 + 2)
+    KNOWN[ns.WATER[4].spell] = nil
+    fire("SPELLS_CHANGED") RunTimers(0)
     check("a target on a rank not learned is skipped", ns.Conjure.CurrentRow() == ns.WATER[3])
     GROUP = { { unit = "party1", guid = "G1", name = "Low", level = 12, class = "PRIEST" } }
     check("a level 12 gets rank 2", ns.Trade.ShareText(ns.Trade.Members()[1]) == "40 Fresh Water, 20 Bread")
@@ -1204,6 +1214,13 @@ const scenarios = [
     KNOWN[5504] = true
     fire("SPELLS_CHANGED")
     check("learning Conjure Water plans it", ns.db.seeded == true and ns.db.targets.water[1] == 40)
+    ns.UI.Toggle() RunTimers(0)
+    local food = ns.UI.parts.sections.food.body
+    check("with no food rank learned the Food list says so", food.empty.shown and food.empty.text == "You haven't learned Conjure Food yet.")
+    local shownRows = 0
+    for _, row in ipairs(ns.UI.parts.rankRows.food) do if row.shown then shownRows = shownRows + 1 end end
+    check("and shows no rows", shownRows == 0)
+    check("the Water list shows its one rank", ns.UI.parts.rankRows.water[7].shown and ns.UI.parts.sections.water.body.empty.shown == false)
   ` },
   { label: 'no FlipBook', code: String.raw`
     BAD_FLIPBOOK = true

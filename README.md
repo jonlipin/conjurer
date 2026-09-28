@@ -11,7 +11,7 @@ Type `/conjure` (or `/conjurer`), or click the minimap button.
 A Blizzard-style window with the Ready bar at the top and six sections you can fold away:
 
 - **Water** and **Food**: every rank, the level needed to use it, how many you have, and a slider
-  for how many you want. Ranks you haven't learned are greyed out. **Fill targets from group**
+  for how many you want. Only the ranks you've learned are listed. **Fill targets from group**
   sets every target to what your group is still owed plus what you keep for yourself.
 - **Shares by class**: how much water and food each class gets, and how much you keep. Options to
   fill the trade window by itself, to give each person the best rank they can use, and to include

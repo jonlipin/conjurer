@@ -595,7 +595,7 @@ local function RankSummary(kind)
 	local ranks, have, want = 0, 0, 0
 	for _, entry in ipairs(ns.KINDS[kind]) do
 		local t = ns.Target(entry)
-		if t > 0 then
+		if t > 0 and ns.Known(entry.spell) then
 			ranks = ranks + 1
 			have = have + math.min(ns.Count(entry.item), t)
 			want = want + t
@@ -627,15 +627,18 @@ local SUMMARY = {
 -- Section bodies
 -- ------------------------------------------------------------------
 
+-- One row per rank, built once; only the ranks you've learned are shown, laid out in RefreshRanks.
 local function BuildRanks(body, kind)
 	local list = ns.KINDS[kind]
-	local y = 2
+	body.empty = Text(body, "GameFontDisable")
+	body.empty:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -8)
+	body.empty:SetText("You haven't learned Conjure " .. ns.KIND_LABEL[kind] .. " yet.")
+	body.empty:Hide()
 	for r = #list, 1, -1 do
 		local entry = list[r]
 		local row = CreateFrame("Frame", nil, body)
 		row:SetHeight(ROW_H)
-		row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
-		row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+		row:Hide()
 		row.entry = entry
 		row.icon = row:CreateTexture(nil, "ARTWORK")
 		row.icon:SetSize(22, 22)
@@ -664,32 +667,43 @@ local function BuildRanks(body, kind)
 		end)
 		row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		rankRows[kind][#rankRows[kind] + 1] = row
-		y = y + ROW_H
 	end
-	body:SetHeight(y + 2)
+	body:SetHeight(ROW_H)
 end
 
+-- Shows the ranks this character has learned, best first, closing up over the others.
 local function RefreshRanks(kind)
+	local body = sections[kind].body
+	local y, shown = 2, 0
 	for _, row in ipairs(rankRows[kind]) do
 		local entry = row.entry
-		local known = ns.Known(entry.spell)
-		local have, target = ns.Count(entry.item), ns.Target(entry)
-		row.icon:SetTexture(ns.ItemIcon(entry))
-		row.icon:SetDesaturated(not known)
-		row.name:SetText(ns.ShortName(entry) .. (known and "" or "  (not learned)"))
-		if known then row.name:SetTextColor(1, 1, 1) else row.name:SetTextColor(0.5, 0.5, 0.5) end
-		row.level:SetText("Level " .. entry.level)
-		row.have:SetText("Have " .. have)
-		if target > 0 and have >= target then
-			row.have:SetTextColor(0.4, 0.85, 0.4)
-		elseif target > 0 then
-			row.have:SetTextColor(1, 0.82, 0)
+		if ns.Known(entry.spell) then
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+			row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+			row:Show()
+			local have, target = ns.Count(entry.item), ns.Target(entry)
+			row.icon:SetTexture(ns.ItemIcon(entry))
+			row.name:SetText(ns.ShortName(entry))
+			row.level:SetText("Level " .. entry.level)
+			row.have:SetText("Have " .. have)
+			if target > 0 and have >= target then
+				row.have:SetTextColor(0.4, 0.85, 0.4)
+			elseif target > 0 then
+				row.have:SetTextColor(1, 0.82, 0)
+			else
+				row.have:SetTextColor(0.8, 0.8, 0.8)
+			end
+			row.slider:Set(target)
+			y = y + ROW_H
+			shown = shown + 1
 		else
-			row.have:SetTextColor(0.8, 0.8, 0.8)
+			row:Hide()
 		end
-		row.slider:Set(target)
-		row.slider:SetActive(known)
 	end
+	body.empty:SetShown(shown == 0)
+	if shown == 0 then y = y + 26 end
+	body:SetHeight(y + 2)
 end
 
 local function ShareRow(body, y, label, iconSet, get, set, maxV)
