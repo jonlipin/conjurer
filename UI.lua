@@ -11,7 +11,7 @@ local report = ns.report
 local UI = {}
 ns.UI = UI
 
-local WIDTH, HEIGHT = 624, 640 -- wide enough for the eight profile tabs at Blizzard's 72 minimum
+local WIDTH, HEIGHT = 624, 640 -- wide enough that the eight profile tabs need little scaling
 local ROW_H = 28
 local SLIDER_W = 178
 
@@ -1162,16 +1162,26 @@ end
 -- ------------------------------------------------------------------
 
 local tabs = {}
-local tabStyle
+local tabStyle, tabStrip
+local TAB_W, TAB_GAP, TAB_H = 72, 3, 32
 
+-- The profile tabs hang right under the Water and Food sliders, since those are the only thing a
+-- profile changes. Eight Blizzard tabs are a little wider than the list, so the row is scaled to fit.
 local function BuildTabs()
 	tabStyle = "PanelTabButtonTemplate"
+	tabStrip = CreateFrame("Frame", nil, content)
+	tabStrip:SetHeight(TAB_H)
+	local total = #ns.PROFILES * TAB_W + (#ns.PROFILES - 1) * TAB_GAP + 4
+	tabStrip:SetWidth(total)
+	local fit = math.min(1, ((content:GetWidth() or total) - 4) / total)
+	tabStrip:SetScale(fit)
+	tabStrip.fit = fit
 	for i, def in ipairs(ns.PROFILES) do
-		local ok, tab = pcall(CreateFrame, "Button", "ConjurerFrameTab" .. i, frame, "PanelTabButtonTemplate")
+		local ok, tab = pcall(CreateFrame, "Button", "ConjurerFrameTab" .. i, tabStrip, "PanelTabButtonTemplate")
 		if not (ok and tab and tab.Text and tab.Left) then
 			if ok and tab then tab:Hide() end
 			tabStyle = "plain"
-			tab = CreateFrame("Button", "ConjurerFrameTabPlain" .. i, frame)
+			tab = CreateFrame("Button", "ConjurerFrameTabPlain" .. i, tabStrip)
 			tab:SetSize(72, 24)
 			tab.bg = tab:CreateTexture(nil, "BACKGROUND")
 			tab.bg:SetAllPoints()
@@ -1188,9 +1198,9 @@ local function BuildTabs()
 		tab:SetText(def.label)
 		tab:ClearAllPoints()
 		if i == 1 then
-			tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 12, 2)
+			tab:SetPoint("TOPLEFT", tabStrip, "TOPLEFT", 4, 0)
 		else
-			tab:SetPoint("TOPLEFT", tabs[i - 1], "TOPRIGHT", 3, 0)
+			tab:SetPoint("TOPLEFT", tabs[i - 1], "TOPRIGHT", TAB_GAP, 0)
 		end
 		tab:SetScript("OnClick", Guard("profile tab", function()
 			Sound("IG_CHARACTER_INFO_TAB", 841)
@@ -1200,7 +1210,7 @@ local function BuildTabs()
 			GameTooltip:SetOwner(self, "ANCHOR_TOP")
 			GameTooltip:SetText(def.label .. " profile", 1, 1, 1)
 			GameTooltip:AddLine(def.tip, nil, nil, nil, true)
-			GameTooltip:AddLine("Its own targets for every rank of water and food.", 0.8, 0.8, 0.8, true)
+			GameTooltip:AddLine("How much of each rank of water and food to conjure: the sliders above.", 0.8, 0.8, 0.8, true)
 			if ns.Bracket() == def.key then GameTooltip:AddLine("Your group is this size now.", 0.4, 0.85, 0.4) end
 			if ns.db.profileAuto then
 				GameTooltip:AddLine("The profile follows your group by itself; one you click holds until your group changes size.",
@@ -1212,20 +1222,19 @@ local function BuildTabs()
 		tabs[i] = tab
 	end
 	if tabStyle == "PanelTabButtonTemplate" then
-		frame.numTabs = #tabs
+		tabStrip.numTabs = #tabs
 		for _, tab in ipairs(tabs) do
-			if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0, nil, 72) end
+			if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0, nil, TAB_W) end
 		end
 	end
 	report["profile tabs"] = tabStyle
-	-- Keep the tabs on screen along with the window.
-	if frame.SetClampRectInsets then frame:SetClampRectInsets(0, 0, 0, -30) end
+	report["profile tab scale"] = string.format("%.2f, under the Food sliders", fit)
 end
 
 local function RefreshTabs()
 	local index = ns.PROFILE_BY_KEY[ns.ProfileKey()].index
 	if tabStyle == "PanelTabButtonTemplate" and PanelTemplates_SetTab then
-		pcall(PanelTemplates_SetTab, frame, index)
+		pcall(PanelTemplates_SetTab, tabStrip, index)
 	else
 		for i, tab in ipairs(tabs) do
 			tab.selected = i == index
@@ -1315,7 +1324,7 @@ local function Build()
 		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture,
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
-		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs,
+		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs, tabStrip = tabStrip,
 		announceBox = announceBox, announcePreview = announcePreview, announceMove = announceMove,
 	}
 	local used = {}
@@ -1368,6 +1377,14 @@ function UI.Layout()
 		end
 		s.header.Summary:SetText(collapsed and SUMMARY[def.key]() or "")
 		if s.action then s.action:SetShown(not collapsed) end
+		-- The profile tabs, straight after the Food sliders (or its header, when it's closed).
+		if def.key == "food" and tabStrip then
+			local fit = tabStrip.fit or 1
+			if collapsed then y = y + 2 end
+			tabStrip:ClearAllPoints()
+			tabStrip:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y / fit)
+			y = y + TAB_H * fit + 8
+		end
 	end
 	content:SetHeight(math.max(y, 1))
 	if scroll.UpdateScrollChildRect then pcall(scroll.UpdateScrollChildRect, scroll) end

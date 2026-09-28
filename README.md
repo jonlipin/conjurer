@@ -25,7 +25,7 @@ A Blizzard-style window with the Ready bar at the top and six sections you can f
 
 ## Profiles
 
-Every group size has its own targets, on the tabs under the window:
+Every group size has its own targets: the tabs right under the Water and Food sliders switch which set of amounts the sliders show and Ready conjures to. Nothing else changes with the profile.
 
 | Tab | When |
 |---|---|

@@ -63,6 +63,8 @@ end
 M.GetPoint = function(s, i) local p = s.points[i or 1] if p then return p[1], p[2], p[3], p[4], p[5] end end
 M.ClearAllPoints = function(s) s.points = {} end
 M.SetAllPoints = function(s, o) s.allPoints = o or s.parent end
+M.SetScale = function(s, v) s.scale = v end
+M.GetScale = function(s) return s.scale or 1 end
 M.SetAttribute = function(s, k, v) s.attributes[k] = v end
 M.GetAttribute = function(s, k) return s.attributes[k] end
 M.RegisterEvent = function(s, e) if BAD_EVENTS and BAD_EVENTS[e] then error("unknown event " .. e) end s.events[e] = true end
@@ -606,7 +608,7 @@ function KnowAll() for _, list in pairs({ NS and NS.WATER or {}, NS and NS.FOOD 
 function Played(id) for _, p in ipairs(PLAYED) do if p == id then return true end end return false end
 -- Which profile tab is selected, from Blizzard's tab state or the plain tabs' own.
 function SelectedTab()
-  if NS.report["profile tabs"] == "PanelTabButtonTemplate" then return ConjurerFrame.selectedTab end
+  if NS.report["profile tabs"] == "PanelTabButtonTemplate" then return NS.UI.parts.tabStrip.selectedTab end
   for i, tab in ipairs(NS.UI.parts.tabs) do if tab.selected then return i end end
 end
 -- As in the game, a check button flips its own state before its click handler runs.
@@ -1153,11 +1155,22 @@ RAID, GROUP = false, {}
 UI.Show() RunTimers(0)
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
 check("alone again, the profile goes back to Solo", ns.db.profile == "solo" and ChatWith("Profile: Solo.") == 1)
-check("eight profile tabs hang under the window", #P.tabs == 8 and P.tabs[1].text == "Solo" and P.tabs[8].text == "AV 40"
-  and P.tabs[1].points[1][2] == ConjurerFrame and P.tabs[1].points[1][3] == "BOTTOMLEFT")
-check("in Blizzard's tab template", ns.report["profile tabs"] == "PanelTabButtonTemplate" and #ConjurerFrame.Tabs == 8)
+local strip = P.tabStrip
+local function StripTop() return -strip.points[1][5] * (strip.scale or 1) end
+local function SharesTop() return -P.sections.shares.header.points[1][5] end
+local foodBody = P.sections.food.body
+check("eight profile tabs sit right under the Food sliders", #P.tabs == 8 and P.tabs[1].text == "Solo" and P.tabs[8].text == "AV 40"
+  and P.tabs[1].parent == strip and strip.parent == P.content
+  and StripTop() >= -foodBody.points[1][5] + foodBody.h and StripTop() + 32 * strip.scale <= SharesTop(), StripTop())
+check("in Blizzard's tab template", ns.report["profile tabs"] == "PanelTabButtonTemplate" and #strip.Tabs == 8)
 check("Solo's tab is the selected one", SelectedTab() == 1)
-check("they fit under the window", 12 + 8 * 72 + 7 * 3 <= ConjurerFrame.w)
+check("scaled just enough to fit the list", (8 * 72 + 7 * 3 + 4) * strip.scale <= P.content.w and strip.scale > 0.9, strip.scale)
+ns.db.collapsed.food = true
+UI.Refresh()
+check("with Food closed, the tabs move up under its header", StripTop() == -P.sections.food.header.points[1][5] + 30
+  and StripTop() + 32 * strip.scale < SharesTop())
+ns.db.collapsed.food = false
+UI.Refresh()
 check("each profile has its own amounts at your best rank", ns.Profile("party").food[7] ~= nil and ns.Profile("raid40").water[7] == 300
   and ns.Profile("bg40").water[7] == 240 and ns.Profile("bg10").food[7] == 60)
 local soloWater = ns.Profile("solo").water[7]
