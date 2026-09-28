@@ -1,0 +1,1112 @@
+-- Conjurer
+-- UI: the window.
+--
+-- A portrait window built from the client's own ButtonFrameTemplate, like the spellbook and the
+-- bags: the Conjure icon in the round portrait, the Ready bar next to it, and below that an inset
+-- holding collapsible sections with the reputation list's header art. Every template and atlas is
+-- tried first and a plain stand-in is used when it is missing; /conjure debug says which one won.
+
+local ADDON, ns = ...
+local report = ns.report
+local UI = {}
+ns.UI = UI
+
+local WIDTH, HEIGHT = 600, 640
+local ROW_H = 28
+local SLIDER_W = 178
+
+local frame, scroll, content
+local readyButton, readyGlow, readyAnim, readyTitle, readyDetail, keyButton, keyHint, capture
+local capturing = false
+local sections = {}
+local rankRows = { water = {}, food = {} }
+local shareRows = {}
+local memberRows = {}
+local groupEmpty, optionsInfo
+local syncers = {}
+local ticker
+
+local SECTIONS = {
+	{ key = "water", title = "Water" },
+	{ key = "food", title = "Food" },
+	{ key = "shares", title = "Shares by class" },
+	{ key = "group", title = "Group" },
+	{ key = "macro", title = "Eat and drink macro" },
+	{ key = "options", title = "Options" },
+}
+local macroButton, macroText, macroStatus, macroMake
+
+local function Guard(label, fn) return ns.Guard(label, fn) end
+
+local function Sound(id, fallback)
+	pcall(PlaySound, (SOUNDKIT and SOUNDKIT[id]) or fallback, "SFX")
+end
+
+local function Text(parent, font, layer)
+	local fs = parent:CreateFontString(nil, layer or "ARTWORK", font or "GameFontHighlight")
+	fs:SetJustifyH("LEFT")
+	fs:SetWordWrap(false)
+	return fs
+end
+
+local function Tip(region, title, body)
+	region:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(title, 1, 1, 1)
+		if body then GameTooltip:AddLine(body, nil, nil, nil, true) end
+		GameTooltip:Show()
+	end)
+	region:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+-- ------------------------------------------------------------------
+-- Controls, each with a plain stand-in
+-- ------------------------------------------------------------------
+
+local function NewButton(parent, text, width, height)
+	local ok, b = pcall(CreateFrame, "Button", nil, parent, "UIPanelButtonTemplate")
+	if ok and b then
+		report["button template"] = "UIPanelButtonTemplate"
+	else
+		b = CreateFrame("Button", nil, parent)
+		local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		fs:SetAllPoints()
+		b:SetFontString(fs)
+		local bg = b:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0.3, 0.05, 0.05, 0.9)
+		local hl = b:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetAllPoints()
+		hl:SetColorTexture(1, 1, 1, 0.12)
+		report["button template"] = "plain (no UIPanelButtonTemplate)"
+	end
+	b:SetSize(width or 80, height or 22)
+	b:SetText(text or "")
+	return b
+end
+
+local function NewCheck(parent, label, get, set, tip)
+	local cb
+	for _, tmpl in ipairs({ "UICheckButtonTemplate", "ChatConfigCheckButtonTemplate" }) do
+		local ok, made = pcall(CreateFrame, "CheckButton", nil, parent, tmpl)
+		if ok and made then
+			cb = made
+			report["check template"] = tmpl
+			break
+		end
+	end
+	if not cb then
+		cb = CreateFrame("CheckButton", nil, parent)
+		local box = cb:CreateTexture(nil, "BACKGROUND")
+		box:SetAllPoints()
+		box:SetColorTexture(0, 0, 0, 0.6)
+		local mark = cb:CreateTexture(nil, "ARTWORK")
+		mark:SetPoint("TOPLEFT", 5, -5)
+		mark:SetPoint("BOTTOMRIGHT", -5, 5)
+		mark:SetColorTexture(1, 0.82, 0, 1)
+		cb:SetCheckedTexture(mark)
+		report["check template"] = "plain"
+	end
+	cb:SetSize(24, 24)
+	local fs = Text(parent, "GameFontHighlight")
+	fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+	fs:SetText(label)
+	cb.label = fs
+	cb:SetScript("OnClick", Guard("checkbox " .. label, function(self)
+		local on = self:GetChecked() and true or false
+		Sound(on and "IG_MAINMENU_OPTION_CHECKBOX_ON" or "IG_MAINMENU_OPTION_CHECKBOX_OFF", 856)
+		set(on)
+		ns.Log("option \"" .. label .. "\": " .. (on and "on" or "off"))
+		ns.Refresh()
+	end))
+	if tip then Tip(cb, label, tip) end
+	syncers[#syncers + 1] = function() cb:SetChecked(get() and true or false) end
+	return cb
+end
+
+-- A slider with Blizzard's stepper arrows and the value on its right, as in the game's options.
+-- Returns a holder with :Set(value) (no callback) and :SetActive(on).
+local PLAIN_SLIDERS = { "MinimalSliderTemplate", "UISliderTemplate", "OptionsSliderTemplate" }
+
+local function NewSlider(parent, width, minV, maxV, step, onUserRaw)
+	local onUser = Guard("slider", onUserRaw)
+	local holder
+	local ok, made = pcall(CreateFrame, "Frame", nil, parent, "MinimalSliderWithSteppersTemplate")
+	local mixin = MinimalSliderWithSteppersMixin
+	if ok and made and made.Slider and made.Init and mixin and mixin.Event and mixin.Label then
+		holder = made
+		holder:SetSize(width, 20)
+		local formatters = { [mixin.Label.Right] = function(v) return tostring(math.floor(v + 0.5)) end }
+		local fine = pcall(holder.Init, holder, 0, minV, maxV, (maxV - minV) / step, formatters)
+		if fine and holder.RegisterCallback then
+			holder:RegisterCallback(mixin.Event.OnValueChanged, function(_, v)
+				if holder.syncing then return end
+				onUser(math.floor(v / step + 0.5) * step)
+			end, holder)
+			holder.top = maxV
+			function holder:Set(v)
+				v = tonumber(v) or 0
+				local top = math.max(maxV, math.ceil(v / 100) * 100)
+				self.syncing = true
+				if top ~= self.top then
+					self.top = top
+					self.Slider:SetMinMaxValues(minV, top)
+				end
+				self.Slider:SetValue(v)
+				if self.FormatValue then self:FormatValue(v) end
+				self.syncing = false
+			end
+			function holder:SetActive(on) if self.SetEnabled then self:SetEnabled(on and true or false) end end
+			report["slider template"] = "MinimalSliderWithSteppersTemplate"
+			return holder
+		end
+		made:Hide()
+	elseif ok and made then
+		made:Hide()
+	end
+
+	-- The plain slider, with our own value text.
+	local slider
+	for _, tmpl in ipairs(PLAIN_SLIDERS) do
+		local okPlain, s = pcall(CreateFrame, "Slider", nil, parent, tmpl)
+		if okPlain and s and s.SetMinMaxValues then
+			slider = s
+			report["slider template"] = tmpl
+			for _, key in ipairs({ "Low", "High", "Text" }) do
+				if type(s[key]) == "table" and s[key].SetText then s[key]:SetText("") end
+			end
+			break
+		end
+	end
+	if not slider then
+		slider = CreateFrame("Slider", nil, parent)
+		slider:SetOrientation("HORIZONTAL")
+		local bar = slider:CreateTexture(nil, "BACKGROUND")
+		bar:SetPoint("LEFT")
+		bar:SetPoint("RIGHT")
+		bar:SetHeight(6)
+		bar:SetColorTexture(0, 0, 0, 0.6)
+		local thumb = slider:CreateTexture(nil, "OVERLAY")
+		thumb:SetSize(10, 16)
+		thumb:SetColorTexture(1, 0.82, 0, 1)
+		slider:SetThumbTexture(thumb)
+		report["slider template"] = "plain"
+	end
+	holder = CreateFrame("Frame", nil, parent)
+	holder:SetSize(width, 20)
+	slider:SetParent(holder)
+	slider:SetPoint("LEFT", 4, 0)
+	slider:SetPoint("RIGHT", -4, 0)
+	slider:SetHeight(16)
+	slider:SetMinMaxValues(minV, maxV)
+	slider:SetValueStep(step)
+	if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+	local value = Text(holder, "GameFontNormal")
+	value:SetPoint("LEFT", holder, "RIGHT", 4, 0)
+	holder.Slider, holder.valueText, holder.top = slider, value, maxV
+	slider:SetScript("OnValueChanged", function(_, v)
+		v = math.floor(v / step + 0.5) * step
+		value:SetText(tostring(v))
+		if holder.syncing then return end
+		onUser(v)
+	end)
+	function holder:Set(v)
+		v = tonumber(v) or 0
+		local top = math.max(maxV, math.ceil(v / 100) * 100)
+		self.syncing = true
+		if top ~= self.top then
+			self.top = top
+			slider:SetMinMaxValues(minV, top)
+		end
+		slider:SetValue(v)
+		value:SetText(tostring(v))
+		self.syncing = false
+	end
+	function holder:SetActive(on)
+		if slider.SetEnabled then slider:SetEnabled(on and true or false) end
+		value:SetAlpha(on and 1 or 0.4)
+	end
+	return holder
+end
+
+-- ------------------------------------------------------------------
+-- The window
+-- ------------------------------------------------------------------
+
+local function CreateWindow()
+	local panel, used
+	for _, tmpl in ipairs({ "ButtonFrameTemplate", "PortraitFrameTemplate" }) do
+		local ok, made = pcall(CreateFrame, "Frame", "ConjurerFrame", UIParent, tmpl)
+		if ok and made and (made.NineSlice or made.Inset or made.PortraitContainer) then
+			panel, used = made, tmpl
+			break
+		end
+		if ok and made then made:Hide() end
+	end
+	if not panel then
+		local ok, made = pcall(CreateFrame, "Frame", "ConjurerFrame", UIParent, "BackdropTemplate")
+		panel = (ok and made) or CreateFrame("Frame", "ConjurerFrame", UIParent)
+		used = "plain"
+		if panel.SetBackdrop then
+			panel:SetBackdrop({
+				bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+				edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+				tile = true, tileSize = 16, edgeSize = 14,
+				insets = { left = 3, right = 3, top = 3, bottom = 3 },
+			})
+			panel:SetBackdropColor(0.05, 0.05, 0.07, 0.95)
+		else
+			local bg = panel:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints()
+			bg:SetColorTexture(0.05, 0.05, 0.07, 0.95)
+		end
+	end
+	report["window template"] = used
+	if used == "ButtonFrameTemplate" and ButtonFrameTemplate_HideButtonBar then
+		pcall(ButtonFrameTemplate_HideButtonBar, panel)
+	end
+
+	panel:SetSize(WIDTH, HEIGHT)
+	panel:SetFrameStrata("MEDIUM")
+	if panel.SetToplevel then panel:SetToplevel(true) end
+	panel:SetClampedToScreen(true)
+	panel:SetMovable(true)
+	panel:EnableMouse(true)
+	panel:RegisterForDrag("LeftButton")
+	panel:SetScript("OnDragStart", panel.StartMoving)
+	panel:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		local point, _, relPoint, x, y = self:GetPoint(1)
+		ns.db.point = { point, relPoint, x, y }
+	end)
+
+	local title = panel.TitleText or (panel.TitleContainer and panel.TitleContainer.TitleText)
+	if not title then
+		title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		title:SetPoint("TOP", 0, -6)
+	end
+	title:SetText("Conjurer")
+
+	panel.portraitTexture = (panel.PortraitContainer and panel.PortraitContainer.portrait) or panel.portrait
+	if not panel.CloseButton then
+		local ok, close = pcall(CreateFrame, "Button", nil, panel, "UIPanelCloseButton")
+		if ok and close then
+			close:SetPoint("TOPRIGHT", 1, 1)
+		else
+			close = NewButton(panel, "x", 22, 22)
+			close:SetPoint("TOPRIGHT", -4, -4)
+			close:SetScript("OnClick", function() panel:Hide() end)
+		end
+	end
+
+	-- The inset, lowered to leave room for the Ready bar.
+	local inset = panel.Inset
+	if not inset then
+		local ok, made = pcall(CreateFrame, "Frame", nil, panel, "InsetFrameTemplate")
+		inset = (ok and made) or CreateFrame("Frame", nil, panel)
+		if not ok then
+			local bg = inset:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints()
+			bg:SetColorTexture(0, 0, 0, 0.35)
+		end
+	end
+	inset:ClearAllPoints()
+	inset:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -88)
+	inset:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 4)
+	panel.insetFrame = inset
+
+	panel:Hide()
+	tinsert(UISpecialFrames, "ConjurerFrame")
+	return panel
+end
+
+local function SetPortrait(icon)
+	if not frame then return end
+	if frame.SetPortraitToAsset then
+		if pcall(frame.SetPortraitToAsset, frame, icon) then return end
+	end
+	if frame.portraitTexture then frame.portraitTexture:SetTexture(icon) end
+end
+
+local function Place()
+	frame:ClearAllPoints()
+	local p = ns.db.point
+	if type(p) == "table" and p[1] then
+		frame:SetPoint(p[1], UIParent, p[2] or p[1], p[3] or 0, p[4] or 0)
+	else
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+	end
+end
+
+-- ------------------------------------------------------------------
+-- The Ready bar
+-- ------------------------------------------------------------------
+
+-- An icon button dressed like an action bar button: the icon under the bar's rounded mask, its
+-- frame, its pressed art and its hover highlight.
+local function DressIcon(button, size)
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+	button.icon = icon
+	if ns.HasAtlas("UI-HUD-ActionBar-IconFrame-Mask") and button.CreateMaskTexture then
+		local mask = button:CreateMaskTexture()
+		mask:SetAtlas("UI-HUD-ActionBar-IconFrame-Mask")
+		mask:SetAllPoints(icon)
+		icon:AddMaskTexture(mask)
+	end
+	if ns.HasAtlas("UI-HUD-ActionBar-IconFrame") then
+		local w = size * 46 / 45
+		local border = button:CreateTexture(nil, "OVERLAY")
+		border:SetAtlas("UI-HUD-ActionBar-IconFrame")
+		border:SetPoint("TOPLEFT")
+		border:SetSize(w, size)
+		local pushed = button:CreateTexture(nil, "OVERLAY")
+		pushed:SetAtlas("UI-HUD-ActionBar-IconFrame-Down")
+		pushed:SetPoint("TOPLEFT")
+		pushed:SetSize(w, size)
+		button:SetPushedTexture(pushed)
+		local hl = button:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetAtlas("UI-HUD-ActionBar-IconFrame-Mouseover")
+		hl:SetPoint("TOPLEFT")
+		hl:SetSize(w, size)
+		hl:SetBlendMode("ADD")
+		report["icon button art"] = "action bar button"
+	else
+		local hl = button:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetAllPoints()
+		hl:SetColorTexture(1, 1, 1, 0.15)
+		report["icon button art"] = "plain icon"
+	end
+	return icon
+end
+
+local function BuildReadyBar()
+	readyButton = CreateFrame("Button", "ConjurerReadyButton", frame)
+	readyButton:SetSize(42, 42)
+	readyButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 72, -32)
+	readyButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	DressIcon(readyButton, 42)
+
+	-- The spell alert glow the action bars use for a proc: Ready is lit.
+	readyGlow = readyButton:CreateTexture(nil, "OVERLAY", nil, 7)
+	readyGlow:SetPoint("CENTER")
+	readyGlow:SetSize(42 * 1.42, 42 * 1.42)
+	readyGlow:Hide()
+	readyAnim = readyGlow:CreateAnimationGroup()
+	local style
+	if ns.HasAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook") then
+		readyGlow:SetAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook")
+		local ok = pcall(function()
+			local flip = readyAnim:CreateAnimation("FlipBook")
+			flip:SetDuration(1)
+			flip:SetFlipBookRows(6)
+			flip:SetFlipBookColumns(5)
+			flip:SetFlipBookFrames(30)
+			flip:SetFlipBookFrameWidth(0)
+			flip:SetFlipBookFrameHeight(0)
+		end)
+		if ok then
+			readyAnim:SetLooping("REPEAT")
+			style = "spell alert flipbook"
+		end
+	end
+	if not style then
+		if ns.HasAtlas("UI-HUD-ActionBar-IconFrame-Mouseover") then
+			readyGlow:SetAtlas("UI-HUD-ActionBar-IconFrame-Mouseover")
+		else
+			readyGlow:SetColorTexture(0.35, 0.75, 1, 0.6)
+		end
+		readyGlow:SetBlendMode("ADD")
+		local pulse = readyAnim:CreateAnimation("Alpha")
+		pulse:SetFromAlpha(0.3)
+		pulse:SetToAlpha(1)
+		pulse:SetDuration(0.6)
+		readyAnim:SetLooping("BOUNCE")
+		style = "pulse"
+	end
+	report["ready glow"] = style
+
+	readyButton:SetScript("OnClick", Guard("Ready button", function(_, which)
+		if which == "RightButton" and ns.Conjure.armed then
+			ns.Conjure.Disarm("Ready is off.")
+		else
+			ns.Conjure.Toggle()
+		end
+		Sound("IG_MAINMENU_OPTION_CHECKBOX_ON", 856)
+	end))
+	Tip(readyButton, "Ready",
+		"Click when you're set to conjure. It lights up, and while it's lit, holding your key conjures each row in turn until its target is met. Click again, or enter combat, to switch it off.")
+
+	readyTitle = Text(frame, "GameFontNormalLarge")
+	readyTitle:SetPoint("TOPLEFT", readyButton, "TOPRIGHT", 10, -2)
+	readyTitle:SetWidth(330)
+	readyDetail = Text(frame, "GameFontHighlightSmall")
+	readyDetail:SetPoint("TOPLEFT", readyTitle, "BOTTOMLEFT", 0, -4)
+	readyDetail:SetWidth(330)
+	readyDetail:SetWordWrap(true)
+	readyDetail:SetJustifyV("TOP")
+	readyDetail:SetHeight(26)
+
+	keyButton = NewButton(frame, "Key: F", 118, 22)
+	keyButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -16, -34)
+	keyButton:RegisterForClicks("AnyUp")
+	keyHint = Text(frame, "GameFontDisableSmall")
+	keyHint:SetPoint("TOP", keyButton, "BOTTOM", 0, -3)
+	keyHint:SetText("the key you hold")
+	Tip(keyButton, "The key you hold",
+		"Click, then press the key (or a side mouse button) you want to hold to conjure. Conjurer only uses it while Ready is lit; the rest of the time it does whatever you have it bound to. Escape cancels.")
+
+	-- Covers the window without taking the mouse, so it has a real size to take keys with.
+	capture = CreateFrame("Frame", nil, frame)
+	capture:SetAllPoints(frame)
+	capture:Hide()
+	local IGNORED = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true,
+		LMETA = true, RMETA = true, UNKNOWN = true }
+	local function Modifiers()
+		local s = ""
+		if IsAltKeyDown and IsAltKeyDown() then s = s .. "ALT-" end
+		if IsControlKeyDown and IsControlKeyDown() then s = s .. "CTRL-" end
+		if IsShiftKeyDown and IsShiftKeyDown() then s = s .. "SHIFT-" end
+		return s
+	end
+	local function EndCapture()
+		capturing = false
+		if capture.EnableKeyboard then pcall(capture.EnableKeyboard, capture, false) end
+		capture:Hide()
+		UI.Refresh()
+	end
+	local function Accept(key)
+		ns.db.key = key
+		EndCapture()
+		ns.Log("key set to " .. key)
+		ns.Conjure.Rebind()
+		ns.Print("You'll hold " .. ns.Conjure.KeyText(key) .. " to conjure.")
+	end
+	capture:SetScript("OnKeyDown", Guard("key capture", function(_, key)
+		if key == "ESCAPE" then EndCapture() return end
+		if IGNORED[key] then return end
+		Accept(Modifiers() .. key)
+	end))
+	UI.EndCapture, UI.AcceptKey = EndCapture, Accept
+
+	local MOUSE = { Button4 = "BUTTON4", Button5 = "BUTTON5", MiddleButton = "BUTTON3" }
+	keyButton:SetScript("OnClick", Guard("Key button", function(_, which)
+		if capturing then
+			if MOUSE[which] then Accept(Modifiers() .. MOUSE[which]) else EndCapture() end
+			return
+		end
+		if which ~= "LeftButton" then return end
+		if ns.InCombat() then
+			ns.Print("Set the key out of combat.")
+			return
+		end
+		capturing = true
+		capture:Show()
+		if capture.EnableKeyboard then pcall(capture.EnableKeyboard, capture, true) end
+		if capture.SetPropagateKeyboardInput then pcall(capture.SetPropagateKeyboardInput, capture, false) end
+		UI.Refresh()
+	end))
+end
+
+-- ------------------------------------------------------------------
+-- Sections
+-- ------------------------------------------------------------------
+
+local ART = {
+	left = "Options_ListExpand_Left",
+	middle = "_Options_ListExpand_Middle",
+	right = "Options_ListExpand_Right",
+	open = "Options_ListExpand_Right_Expanded",
+}
+local headerArt
+
+local function HasHeaderArt()
+	if headerArt == nil then
+		headerArt = ns.HasAtlas(ART.left) and ns.HasAtlas(ART.middle) and ns.HasAtlas(ART.right) and ns.HasAtlas(ART.open)
+		report["section header art"] = headerArt and "Blizzard list header (Options_ListExpand)"
+			or "plain bars (the list header atlases are missing)"
+	end
+	return headerArt
+end
+
+local function NewHeader(parent, def)
+	local h = CreateFrame("Button", nil, parent)
+	h:SetHeight(26)
+	if HasHeaderArt() then
+		local function Three(layer, alpha)
+			local l = h:CreateTexture(nil, layer)
+			l:SetAtlas(ART.left, true)
+			l:SetPoint("TOPLEFT")
+			local r = h:CreateTexture(nil, layer)
+			r:SetAtlas(ART.right, true)
+			r:SetPoint("TOPRIGHT")
+			local m = h:CreateTexture(nil, layer)
+			m:SetAtlas(ART.middle)
+			m:SetPoint("TOPLEFT", l, "TOPRIGHT")
+			m:SetPoint("BOTTOMRIGHT", r, "BOTTOMLEFT")
+			if alpha then
+				for _, t in ipairs({ l, r, m }) do
+					t:SetAlpha(alpha)
+					t:SetBlendMode("ADD")
+				end
+			end
+			return r
+		end
+		h.Right = Three("BACKGROUND")
+		h.HighlightRight = Three("HIGHLIGHT", 0.4)
+	else
+		local bg = h:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0.14, 0.11, 0.07, 0.95)
+		local line = h:CreateTexture(nil, "BORDER")
+		line:SetPoint("BOTTOMLEFT")
+		line:SetPoint("BOTTOMRIGHT")
+		line:SetHeight(1)
+		line:SetColorTexture(0.75, 0.62, 0.32, 0.8)
+		local hl = h:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetAllPoints()
+		hl:SetColorTexture(1, 1, 1, 0.08)
+		h.Sign = Text(h, "GameFontNormalLarge")
+		h.Sign:SetPoint("RIGHT", -12, 0)
+	end
+	h.Name = Text(h, "GameFontNormal")
+	h.Name:SetPoint("LEFT", 12, 0)
+	h.Name:SetText(def.title)
+	h.Summary = Text(h, "GameFontDisableSmall")
+	h.Summary:SetPoint("LEFT", h.Name, "RIGHT", 10, 0)
+	h:SetScript("OnClick", Guard("section header", function() UI.ToggleSection(def.key) end))
+	return h
+end
+
+function UI.ToggleSection(key)
+	local collapsed = not ns.db.collapsed[key]
+	ns.db.collapsed[key] = collapsed
+	Sound(collapsed and "IG_MAINMENU_OPTION_CHECKBOX_OFF" or "IG_MAINMENU_OPTION_CHECKBOX_ON", 856)
+	UI.Refresh()
+end
+
+function UI.CollapseAll(collapsed)
+	for _, def in ipairs(SECTIONS) do ns.db.collapsed[def.key] = collapsed and true or false end
+	UI.Refresh()
+end
+
+-- The one-line summary a closed section shows.
+local function RankSummary(kind)
+	local ranks, have, want = 0, 0, 0
+	for _, entry in ipairs(ns.KINDS[kind]) do
+		local t = ns.Target(entry)
+		if t > 0 then
+			ranks = ranks + 1
+			have = have + math.min(ns.Count(entry.item), t)
+			want = want + t
+		end
+	end
+	if ranks == 0 then return "nothing planned" end
+	return ranks .. " rank" .. (ranks == 1 and "" or "s") .. ", " .. have .. " of " .. want
+end
+
+local SUMMARY = {
+	water = function() return RankSummary("water") end,
+	food = function() return RankSummary("food") end,
+	shares = function()
+		local n, total = 0, 0
+		for _, file in ipairs(ns.Classes()) do
+			total = total + 1
+			local s = ns.Share(file)
+			if (s.water or 0) + (s.food or 0) > 0 then n = n + 1 end
+		end
+		return n .. " of " .. total .. " classes get a share, you keep " .. (ns.db.keep.water or 0) .. " water and "
+			.. (ns.db.keep.food or 0) .. " food"
+	end,
+	group = function() return ns.Trade.Summary() end,
+	macro = function() return ns.Macro.Summary() end,
+	options = function() return "" end,
+}
+
+-- ------------------------------------------------------------------
+-- Section bodies
+-- ------------------------------------------------------------------
+
+local function BuildRanks(body, kind)
+	local list = ns.KINDS[kind]
+	local y = 2
+	for r = #list, 1, -1 do
+		local entry = list[r]
+		local row = CreateFrame("Frame", nil, body)
+		row:SetHeight(ROW_H)
+		row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+		row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+		row.entry = entry
+		row.icon = row:CreateTexture(nil, "ARTWORK")
+		row.icon:SetSize(22, 22)
+		row.icon:SetPoint("LEFT", 8, 0)
+		row.name = Text(row, "GameFontHighlight")
+		row.name:SetPoint("LEFT", 36, 0)
+		row.name:SetWidth(168)
+		row.level = Text(row, "GameFontDisableSmall")
+		row.level:SetPoint("LEFT", 208, 0)
+		row.level:SetWidth(56)
+		row.have = Text(row, "GameFontHighlightSmall")
+		row.have:SetPoint("LEFT", 266, 0)
+		row.have:SetWidth(62)
+		row.slider = NewSlider(row, SLIDER_W, 0, 300, 5, function(v)
+			ns.SetTarget(entry, v)
+			ns.Refresh()
+		end)
+		row.slider:SetPoint("LEFT", 330, 0)
+		row:EnableMouse(true)
+		row:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			local ok = GameTooltip.SetItemByID and pcall(GameTooltip.SetItemByID, GameTooltip, entry.item)
+			if not ok then GameTooltip:SetText(entry.name, 1, 1, 1) end
+			GameTooltip:AddLine("Rank " .. entry.rank .. ". Set how many you want in your bags.", 0.6, 0.85, 1, true)
+			GameTooltip:Show()
+		end)
+		row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		rankRows[kind][#rankRows[kind] + 1] = row
+		y = y + ROW_H
+	end
+	body:SetHeight(y + 2)
+end
+
+local function RefreshRanks(kind)
+	for _, row in ipairs(rankRows[kind]) do
+		local entry = row.entry
+		local known = ns.Known(entry.spell)
+		local have, target = ns.Count(entry.item), ns.Target(entry)
+		row.icon:SetTexture(ns.ItemIcon(entry))
+		row.icon:SetDesaturated(not known)
+		row.name:SetText(ns.ShortName(entry) .. (known and "" or "  (not learned)"))
+		if known then row.name:SetTextColor(1, 1, 1) else row.name:SetTextColor(0.5, 0.5, 0.5) end
+		row.level:SetText("Level " .. entry.level)
+		row.have:SetText("Have " .. have)
+		if target > 0 and have >= target then
+			row.have:SetTextColor(0.4, 0.85, 0.4)
+		elseif target > 0 then
+			row.have:SetTextColor(1, 0.82, 0)
+		else
+			row.have:SetTextColor(0.8, 0.8, 0.8)
+		end
+		row.slider:Set(target)
+		row.slider:SetActive(known)
+	end
+end
+
+local function ShareRow(body, y, label, iconSet, get, set, maxV)
+	local row = CreateFrame("Frame", nil, body)
+	row:SetHeight(ROW_H)
+	row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+	row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+	row.icon = row:CreateTexture(nil, "ARTWORK")
+	row.icon:SetSize(18, 18)
+	row.icon:SetPoint("LEFT", 8, 0)
+	iconSet(row.icon)
+	row.name = Text(row, "GameFontHighlight")
+	row.name:SetPoint("LEFT", 32, 0)
+	row.name:SetWidth(112)
+	row.name:SetText(label)
+	row.water = NewSlider(row, 150, 0, maxV, 5, function(v) set("water", v) ns.Refresh() end)
+	row.water:SetPoint("LEFT", 150, 0)
+	row.food = NewSlider(row, 150, 0, maxV, 5, function(v) set("food", v) ns.Refresh() end)
+	row.food:SetPoint("LEFT", 352, 0)
+	row.Sync = function()
+		row.water:Set(get("water"))
+		row.food:Set(get("food"))
+	end
+	shareRows[#shareRows + 1] = row
+	return row
+end
+
+local function BuildShares(body)
+	local y = 4
+	local waterLabel = Text(body, "GameFontNormalSmall")
+	waterLabel:SetPoint("TOPLEFT", body, "TOPLEFT", 150 + 19, -y)
+	waterLabel:SetText("Water")
+	local foodLabel = Text(body, "GameFontNormalSmall")
+	foodLabel:SetPoint("TOPLEFT", body, "TOPLEFT", 352 + 19, -y)
+	foodLabel:SetText("Food")
+	y = y + 16
+
+	local keep = ShareRow(body, y, "You keep", function(tex)
+		tex:SetTexture(ns.SpellIcon(ns.WATER[#ns.WATER]))
+	end, function(kind) return ns.db.keep[kind] or 0 end, function(kind, v) ns.db.keep[kind] = v end, 200)
+	keep.name:SetTextColor(1, 0.82, 0)
+	Tip(keep, "You keep", "What you conjure for yourself on top of the group's shares, at your best rank. Fill targets from group adds it in.")
+	y = y + ROW_H
+
+	for _, file in ipairs(ns.Classes()) do
+		local row = ShareRow(body, y, ns.ClassName(file), function(tex) ns.SetClassIcon(tex, file) end,
+			function(kind) return ns.Share(file)[kind] or 0 end,
+			function(kind, v) ns.Share(file)[kind] = v end, 100)
+		row.name:SetTextColor(ns.ClassColor(file))
+		y = y + ROW_H
+	end
+
+	y = y + 6
+	local checks = {
+		{ "Fill the trade window when a group member opens trade with you",
+			function() return ns.db.autoFill end, function(v) ns.db.autoFill = v end,
+			"Their share goes in by itself. You still press the game's Trade button to finish." },
+		{ "Give the highest rank each person can use",
+			function() return ns.db.bestRank end, function(v) ns.db.bestRank = v end,
+			"Conjured food and water need a level. Off: everyone gets your best rank." },
+		{ "Include the whole raid, not just your group of five",
+			function() return ns.db.includeRaid end, function(v) ns.db.includeRaid = v end, nil },
+	}
+	for _, c in ipairs(checks) do
+		local cb = NewCheck(body, c[1], c[2], c[3], c[4])
+		cb:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+		y = y + 26
+	end
+	body:SetHeight(y + 4)
+end
+
+local function MemberRow(body, i)
+	local row = memberRows[i]
+	if row then return row end
+	row = CreateFrame("Frame", nil, body)
+	row:SetHeight(26)
+	row.icon = row:CreateTexture(nil, "ARTWORK")
+	row.icon:SetSize(18, 18)
+	row.icon:SetPoint("LEFT", 8, 0)
+	row.name = Text(row, "GameFontHighlight")
+	row.name:SetPoint("LEFT", 30, 0)
+	row.name:SetWidth(140)
+	row.share = Text(row, "GameFontHighlightSmall")
+	row.share:SetPoint("LEFT", 174, 0)
+	row.share:SetWidth(186)
+	row.status = Text(row, "GameFontNormalSmall")
+	row.status:SetPoint("LEFT", 364, 0)
+	row.status:SetWidth(112)
+	row.button = NewButton(row, "Trade", 70, 22)
+	row.button:SetPoint("RIGHT", -6, 0)
+	row.button:SetScript("OnClick", Guard("group Trade button", function()
+		if row.member then ns.Trade.Request(row.member, row.full) end
+	end))
+	memberRows[i] = row
+	return row
+end
+
+local function RefreshGroup(body)
+	local members = ns.Trade.Members()
+	local y = 2
+	for i, m in ipairs(members) do
+		local row = MemberRow(body, i)
+		row:ClearAllPoints()
+		row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+		row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+		row.member = m
+		ns.SetClassIcon(row.icon, m.class)
+		row.name:SetText("|c" .. ns.ClassHex(m.class) .. m.name .. "|r  |cff9d9d9d" .. (m.level or "??") .. "|r")
+		row.share:SetText(ns.Trade.ShareText(m))
+		local text, tone, action = ns.Trade.Status(m)
+		local c = ns.Trade.COLORS[tone] or ns.Trade.COLORS.grey
+		row.status:SetText(text)
+		row.status:SetTextColor(c[1], c[2], c[3])
+		row.full = action == "Again"
+		if action then
+			row.button:SetText(action)
+			row.button:Show()
+		else
+			row.button:Hide()
+		end
+		row:Show()
+		y = y + 26
+	end
+	for i = #members + 1, #memberRows do memberRows[i]:Hide() end
+	groupEmpty:SetShown(#members == 0)
+	if #members == 0 then y = y + 30 end
+	body:SetHeight(y + 4)
+end
+
+local function BuildMacro(body)
+	local y = 8
+	macroButton = CreateFrame("Button", "ConjurerMacroButton", body)
+	macroButton:SetSize(36, 36)
+	macroButton:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -y)
+	DressIcon(macroButton, 36)
+	macroButton:RegisterForDrag("LeftButton")
+	macroButton:SetScript("OnDragStart", Guard("macro drag", function() ns.Macro.Pickup() end))
+	macroButton:SetScript("OnClick", Guard("macro button", function() ns.Macro.Pickup() UI.Refresh() end))
+	Tip(macroButton, "Eat and drink",
+		"Drag this onto your action bar. One press eats your best conjured food and drinks your best conjured water at the same time. Conjurer keeps it pointed at your best ranks as your bags change.")
+
+	macroText = Text(body, "GameFontHighlight")
+	macroText:SetPoint("TOPLEFT", macroButton, "TOPRIGHT", 12, -1)
+	macroText:SetWidth(290)
+	macroStatus = Text(body, "GameFontDisableSmall")
+	macroStatus:SetPoint("TOPLEFT", macroText, "BOTTOMLEFT", 0, -5)
+	macroStatus:SetWidth(290)
+
+	macroMake = NewButton(body, "Make macro", 120, 22)
+	macroMake:SetPoint("TOPRIGHT", body, "TOPRIGHT", -12, -y - 6)
+	macroMake:SetScript("OnClick", Guard("Make macro", function()
+		ns.Macro.Write(true)
+		UI.Refresh()
+	end))
+	Tip(macroMake, "Make macro", "Writes the " .. ns.Macro.NAME .. " macro now. After that Conjurer keeps it up to date.")
+	y = y + 46
+
+	local checks = {
+		{ "Keep it up to date as your bags change", function() return ns.db.macro.auto end,
+			function(v) ns.db.macro.auto = v if v then ns.Macro.Write(false) end end, nil },
+		{ "Save it with this character's macros", function() return ns.db.macro.perCharacter end,
+			function(v) ns.db.macro.perCharacter = v end,
+			"Off: with the macros every character shares. Takes effect the next time the macro is made." },
+	}
+	for _, c in ipairs(checks) do
+		local cb = NewCheck(body, c[1], c[2], c[3], c[4])
+		cb:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+		y = y + 26
+	end
+	body:SetHeight(y + 4)
+end
+
+local function RefreshMacro()
+	local _, food, water = ns.Macro.Body()
+	local icon = (food and ns.ItemIcon(food)) or (water and ns.ItemIcon(water)) or "Interface\\Icons\\INV_Misc_QuestionMark"
+	macroButton.icon:SetTexture(icon)
+	local parts = {}
+	if food then parts[#parts + 1] = "eats " .. ns.ShortName(food) end
+	if water then parts[#parts + 1] = "drinks " .. ns.ShortName(water) end
+	macroText:SetText(#parts > 0 and ("One press " .. table.concat(parts, " and ") .. ".") or "No conjured food or water to use yet.")
+	local index = ns.Macro.Index()
+	if index > 0 then
+		macroStatus:SetText(ns.Macro.NAME .. ": " .. (ns.Macro.status or "made") .. ", "
+			.. (ns.Macro.IsCharacterMacro(index) and "a character macro" or "a general macro") .. ". Drag the icon to your bar.")
+		macroMake:SetText("Update macro")
+	else
+		macroStatus:SetText("Not made yet. Click Make macro, or drag the icon to your bar.")
+		macroMake:SetText("Make macro")
+	end
+end
+
+local function BuildOptions(body)
+	local y = 4
+	local checks = {
+		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
+		{ "Turn on Press and Hold Casting while Ready is lit",
+			function() return ns.db.manageCVars end, function(v) ns.db.manageCVars = v end,
+			"Also turns on Cast on Key Down, which hold to cast needs. Both go back to how you had them when Ready goes off." },
+		{ "Show the minimap button", function() return ns.db.minimap.shown end,
+			function(v) ns.db.minimap.shown = v if ns.Minimap then ns.Minimap.Apply() end end, nil },
+	}
+	for _, c in ipairs(checks) do
+		local cb = NewCheck(body, c[1], c[2], c[3], c[4])
+		cb:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+		y = y + 26
+	end
+	y = y + 4
+	optionsInfo = Text(body, "GameFontDisableSmall")
+	optionsInfo:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y)
+	optionsInfo:SetWidth(520)
+	optionsInfo:SetWordWrap(true)
+	optionsInfo:SetHeight(28)
+	y = y + 32
+	local debug = NewButton(body, "Print debug report", 150, 22)
+	debug:SetPoint("TOPLEFT", body, "TOPLEFT", 10, -y)
+	debug:SetScript("OnClick", function()
+		for _, line in ipairs(ns.DebugReport()) do DEFAULT_CHAT_FRAME:AddMessage(line) end
+	end)
+	y = y + 28
+	body:SetHeight(y + 4)
+end
+
+-- ------------------------------------------------------------------
+-- Building and laying out
+-- ------------------------------------------------------------------
+
+local function BuildScroll()
+	local inset = frame.insetFrame
+	local ok, made = pcall(CreateFrame, "ScrollFrame", "ConjurerScrollFrame", inset, "ConjurerScrollFrameTemplate")
+	if ok and made and made.ScrollBar then
+		scroll = made
+		report["scroll frame"] = "ScrollFrameTemplate with MinimalScrollBar"
+	else
+		if ok and made then made:Hide() end
+		ok, made = pcall(CreateFrame, "ScrollFrame", "ConjurerScrollFrameOld", inset, "UIPanelScrollFrameTemplate")
+		if ok and made then
+			scroll = made
+			report["scroll frame"] = "UIPanelScrollFrameTemplate"
+		else
+			scroll = CreateFrame("ScrollFrame", nil, inset)
+			report["scroll frame"] = "plain, mouse wheel only"
+		end
+	end
+	scroll:SetPoint("TOPLEFT", inset, "TOPLEFT", 6, -6)
+	scroll:SetPoint("BOTTOMRIGHT", inset, "BOTTOMRIGHT", -24, 6)
+	scroll:EnableMouseWheel(true)
+	if not scroll:GetScript("OnMouseWheel") then
+		scroll:SetScript("OnMouseWheel", function(self, delta)
+			local range = math.max(0, (content:GetHeight() or 0) - (self:GetHeight() or 0))
+			local v = math.min(range, math.max(0, (self:GetVerticalScroll() or 0) - delta * 40))
+			self:SetVerticalScroll(v)
+		end)
+	end
+	content = CreateFrame("Frame", nil, scroll)
+	content:SetSize(WIDTH - 4 - 6 - 6 - 24, 1)
+	scroll:SetScrollChild(content)
+end
+
+local function Build()
+	if frame then return end
+	ns.Stage("building the window")
+	frame = CreateWindow()
+	Place()
+	BuildReadyBar()
+	BuildScroll()
+
+	for _, def in ipairs(SECTIONS) do
+		local s = { def = def }
+		s.header = NewHeader(content, def)
+		s.body = CreateFrame("Frame", nil, content)
+		s.body:SetHeight(1)
+		sections[def.key] = s
+	end
+	BuildRanks(sections.water.body, "water")
+	BuildRanks(sections.food.body, "food")
+	BuildShares(sections.shares.body)
+	groupEmpty = Text(sections.group.body, "GameFontDisable")
+	groupEmpty:SetPoint("TOPLEFT", sections.group.body, "TOPLEFT", 14, -8)
+	groupEmpty:SetText("You're not in a group. Shares go to your party or raid when you are.")
+	BuildMacro(sections.macro.body)
+	BuildOptions(sections.options.body)
+
+	-- Header buttons: they sit left of the header's own +/- art.
+	local fill = NewButton(sections.water.header, "Fill targets from group", 160, 20)
+	fill:SetPoint("RIGHT", sections.water.header, "RIGHT", -34, 0)
+	fill:SetScript("OnClick", Guard("Fill targets", function() ns.Trade.FillTargets(true) end))
+	Tip(fill, "Fill targets from group",
+		"Sets every target to what your party or raid is still owed, at the rank each person can use, plus what you keep for yourself.")
+	sections.water.action = fill
+	local reset = NewButton(sections.group.header, "Reset handed out", 130, 20)
+	reset:SetPoint("RIGHT", sections.group.header, "RIGHT", -34, 0)
+	reset:SetScript("OnClick", Guard("Reset handed out", function() ns.Trade.ResetHanded() end))
+	Tip(reset, "Reset handed out", "Forget who was already given their share, so everyone gets a new one.")
+	sections.group.action = reset
+
+	-- For the offline harness and the debug report.
+	UI.parts = {
+		frame = frame, content = content, sections = sections, rankRows = rankRows, shareRows = shareRows,
+		memberRows = memberRows, readyButton = readyButton, readyGlow = readyGlow, readyAnim = readyAnim,
+		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture,
+		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
+		macroStatus = macroStatus, macroMake = macroMake,
+	}
+	local used = {}
+	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
+		"section header art", "ready glow", "icon button art" }) do
+		used[#used + 1] = key .. " " .. tostring(report[key])
+	end
+	ns.Log("window built: " .. table.concat(used, "; "))
+
+	frame:SetScript("OnShow", function()
+		Sound("IG_SPELLBOOK_OPEN", 829)
+		UI.Refresh()
+		if C_Timer and C_Timer.NewTicker and not ticker then
+			ticker = C_Timer.NewTicker(1, function() UI.Refresh() end)
+		end
+	end)
+	frame:SetScript("OnHide", function()
+		Sound("IG_SPELLBOOK_CLOSE", 830)
+		if ticker then ticker:Cancel() ticker = nil end
+		if capturing and UI.EndCapture then UI.EndCapture() end
+	end)
+	ns.Stage("idle")
+end
+
+function UI.Layout()
+	local y = 0
+	for _, def in ipairs(SECTIONS) do
+		local s = sections[def.key]
+		local collapsed = ns.db.collapsed[def.key] and true or false
+		s.header:ClearAllPoints()
+		s.header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+		s.header:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
+		y = y + 28
+		if collapsed then
+			s.body:Hide()
+		else
+			s.body:ClearAllPoints()
+			s.body:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+			s.body:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
+			s.body:Show()
+			y = y + (s.body:GetHeight() or 0) + 8
+		end
+		if s.header.Right then
+			s.header.Right:SetAtlas(collapsed and ART.right or ART.open, true)
+			s.header.HighlightRight:SetAtlas(collapsed and ART.right or ART.open, true)
+		elseif s.header.Sign then
+			s.header.Sign:SetText(collapsed and "+" or "-")
+		end
+		s.header.Summary:SetText(collapsed and SUMMARY[def.key]() or "")
+		if s.action then s.action:SetShown(not collapsed) end
+	end
+	content:SetHeight(math.max(y, 1))
+	if scroll.UpdateScrollChildRect then pcall(scroll.UpdateScrollChildRect, scroll) end
+end
+
+function UI.Refresh()
+	if not (frame and frame:IsShown()) then return end
+	local C = ns.Conjure
+	local title, detail = C.Status()
+	readyTitle:SetText(title)
+	if C.armed then readyTitle:SetTextColor(0.35, 0.85, 1) else readyTitle:SetTextColor(1, 0.82, 0) end
+	readyDetail:SetText(detail)
+	local row = (C.armed and C.placed) or C.CurrentRow() or ns.TopKnown("water") or ns.WATER[#ns.WATER]
+	readyButton.icon:SetTexture(ns.SpellIcon(row))
+	readyButton.icon:SetDesaturated(not ns.isMage)
+	if C.armed then
+		readyGlow:Show()
+		if not readyAnim:IsPlaying() then readyAnim:Play() end
+		readyButton:LockHighlight()
+	else
+		readyAnim:Stop()
+		readyGlow:Hide()
+		readyButton:UnlockHighlight()
+	end
+	SetPortrait(ns.SpellIcon(ns.WATER[#ns.WATER]))
+
+	if capturing then
+		keyButton:SetText("Press a key")
+		keyHint:SetText("Escape cancels")
+	else
+		keyButton:SetText("Key: " .. C.KeyText())
+		keyHint:SetText("the key you hold")
+	end
+
+	RefreshRanks("water")
+	RefreshRanks("food")
+	for _, r in ipairs(shareRows) do r.Sync() end
+	for _, sync in ipairs(syncers) do sync() end
+	RefreshGroup(sections.group.body)
+	RefreshMacro()
+
+	local where = C.where or C.FindSlot()
+	optionsInfo:SetText(where
+		and ("Ready borrows " .. where.label .. " button " .. where.index .. " (action slot " .. where.slot .. ")"
+			.. (where.shown and ", a bar you show" or ", a bar you don't show") .. ", and empties it again when Ready goes off.")
+		or "Every action bar button is in use; empty one on Action Bar 6, 7 or 8 for Ready to borrow.")
+	UI.Layout()
+end
+
+function UI.Toggle()
+	Build()
+	if frame:IsShown() then frame:Hide() else frame:Show() end
+end
+
+function UI.Show()
+	Build()
+	frame:Show()
+end
+
+function UI.ResetPosition()
+	ns.db.point = nil
+	Build()
+	Place()
+	frame:Show()
+end
+
+function UI.Init()
+	-- Built on first open, so a session that never opens it pays nothing.
+end
