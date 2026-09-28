@@ -32,7 +32,7 @@ A Blizzard-style window with the Ready bar at the top and sections you can fold 
 
 ## Profiles
 
-Every group size has its own targets: Water and Food sit in their own box, and the tabs hanging from its bottom edge switch which set of amounts the sliders show and Ready conjures to. Nothing else changes with the profile.
+Every group size has its own targets: Water and Food sit in their own box, with a tab for each group size hanging from its bottom edge. Nothing else changes with the profile.
 
 | Tab | When |
 |---|---|
@@ -41,11 +41,17 @@ Every group size has its own targets: Water and Food sit in their own box, and t
 | Raid 10, Raid 20, Raid 40 | a raid of up to 10, 11 to 20, or more than 20 |
 | BG 10, BG 20, AV 40 | a battleground of up to 10 a side (Warsong Gulch), 11 to 20 (Arathi Basin), or more (Alterac Valley) |
 
-A battleground goes by its own size, as the game reports it, and falls back to the number of
-people in it. The profile follows your group by itself (**Switch profile with your group** in
-Options). Click a tab to use that profile instead; your pick holds until your group moves into
-another size. Each profile starts with amounts to suit its size at your best rank, and the sliders
-and **Fill targets from group** change the profile in use only.
+Ready always conjures the profile for your group's size right now. Its tab carries a green check,
+and the Ready line names it. A battleground goes by its own size, as the game reports it, and falls
+back to the number of people in it.
+
+Clicking another tab only shows that profile's amounts, so you can set them ahead of time; the
+sliders change the profile you're looking at. When your group changes size, the window moves to
+the new profile. **Fill targets from group** fills your group's profile. Each profile starts with
+amounts to suit its size at your best rank.
+
+To pick the profile yourself, untick **Conjure for your group's size** in Options: Ready then
+conjures the tab you click, whatever your group.
 
 ## Ready and hold to cast
 

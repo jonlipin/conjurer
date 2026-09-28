@@ -801,7 +801,7 @@ check("each row says the level needed", waterRows[1].level.text == "Level 55" an
 check("and how many you have", waterRows[1].have.text == "Have 0")
 check("the slider shows the target", waterRows[1].slider.Slider.value == 40)
 check("the Ready bar says to press play, then what's next", P.readyTitle.text == "Click play to start"
-  and P.readyDetail.text == "Then hold F to conjure. Next: Crystal Water, 0 of 40.", P.readyDetail.text)
+  and P.readyDetail.text == "Then hold F to conjure. Next: Crystal Water, 0 of 40 (Solo).", P.readyDetail.text)
 check("the key button shows the key", P.keyButton.text == "Key: F")
 
 -- Moving a slider sets the target; syncing it back does not.
@@ -1372,7 +1372,7 @@ UnitIsUnit = function(a, b) return a == b end
 RAID, GROUP = false, {}
 UI.Show() RunTimers(0)
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
-check("alone again, the profile goes back to Solo", ns.db.profile == "solo" and ChatWith("Profile: Solo.") == 1)
+check("alone again, the profile goes back to Solo", ns.ProfileKey() == "solo" and ChatWith("Profile: Solo.") == 1)
 local strip, box = P.tabStrip, P.targetsBox
 local function TopOf(f) return -f.points[1][5] end
 local function SharesTop() return TopOf(P.sections.shares.header) end
@@ -1404,12 +1404,13 @@ check("each profile has its own amounts at your best rank", ns.Profile("party").
 local soloWater = ns.Profile("solo").water[7]
 GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
-check("joining a party switches to Party", ns.db.profile == "party" and SelectedTab() == 2 and ChatWith("Profile: Party.") >= 1)
+check("joining a party, Ready conjures Party's amounts", ns.ProfileKey() == "party" and SelectedTab() == 2 and ChatWith("Profile: Party.") >= 1)
+check("and its tab carries the in-use check", P.tabs[2].inUse.shown and not P.tabs[1].inUse.shown)
 ns.Profile().water[7] = 100
 UI.Refresh()
 check("the rows show Party's targets", P.rankRows.water[1].slider.Slider.value == 100)
 P.rankRows.water[1].slider.Slider:SetValue(140) RunTimers(0)
-check("a slider changes the profile in use and no other", ns.Profile("party").water[7] == 140 and ns.Profile("solo").water[7] == soloWater)
+check("a slider changes the profile shown and no other", ns.Profile("party").water[7] == 140 and ns.Profile("solo").water[7] == soloWater)
 local function RaidOf(n)
   GROUP = {}
   for i = 1, n - 1 do GROUP[i] = { unit = "raid" .. i, guid = "R" .. i, name = "R" .. i, level = 60, class = "MAGE" } end
@@ -1417,51 +1418,80 @@ local function RaidOf(n)
   fire("GROUP_ROSTER_UPDATE") RunTimers(0)
 end
 RaidOf(8)
-check("a raid of 8 is Raid 10", ns.db.profile == "raid10")
+check("a raid of 8 is Raid 10", ns.ProfileKey() == "raid10")
 RaidOf(14)
-check("a raid of 14 is Raid 20", ns.db.profile == "raid20")
+check("a raid of 14 is Raid 20", ns.ProfileKey() == "raid20")
 RaidOf(25)
-check("a raid of 25 is Raid 40", ns.db.profile == "raid40" and SelectedTab() == 5)
-Click(P.tabs[2])
-check("clicking a tab picks that profile", ns.db.profile == "party" and SelectedTab() == 2)
+check("a raid of 25 is Raid 40", ns.ProfileKey() == "raid40" and SelectedTab() == 5 and P.tabs[5].inUse.shown)
+-- A tab you click shows its amounts to set; Ready keeps to your group's size (the user's report:
+-- a tab left open was what got conjured).
+local raid40Water = ns.Profile("raid40").water[7]
+Click(P.tabs[1])
+check("clicking a tab shows that profile's amounts", SelectedTab() == 1 and P.rankRows.water[1].slider.Slider.value == soloWater)
+check("but Ready still conjures your group's", ns.ProfileKey() == "raid40" and ns.Target(ns.WATER[7]) == raid40Water)
+check("the in-use check stays on your group's tab", P.tabs[5].inUse.shown and not P.tabs[1].inUse.shown)
 check("the border stays over the newly raised tab", BorderOverTabs())
+check("and the Ready line says which amounts are shown", P.readyDetail.text:find("(Raid 40).", 1, true) ~= nil
+  and P.readyDetail.text:find("Showing Solo's amounts.", 1, true) ~= nil, P.readyDetail.text)
+P.rankRows.water[1].slider.Slider:SetValue(55) RunTimers(0)
+check("its sliders set that profile, not the one in use", ns.Profile("solo").water[7] == 55 and ns.Profile("raid40").water[7] == raid40Water)
+ns.Profile("solo").water[7] = soloWater
 RaidOf(30)
-check("and it holds while the raid stays in the same size", ns.db.profile == "party")
+check("while the raid stays the same size, the tab you're looking at stays", SelectedTab() == 1)
+Click(P.tabs[5])
+check("clicking your group's tab again follows the group", UI.viewKey == nil and SelectedTab() == 5)
+Click(P.tabs[1])
 RaidOf(12)
-check("until the raid changes size", ns.db.profile == "raid20")
+check("when the raid changes size the window shows the new profile", ns.ProfileKey() == "raid20" and SelectedTab() == 4)
 INSTANCE = { inside = true, kind = "pvp", max = 10 }
 RaidOf(10)
-check("Warsong Gulch, 10 a side, is BG 10", ns.db.profile == "bg10")
+check("Warsong Gulch, 10 a side, is BG 10", ns.ProfileKey() == "bg10")
 INSTANCE.max = 15
 fire("ZONE_CHANGED_NEW_AREA") RunTimers(0)
-check("Arathi Basin, 15 a side, is BG 20", ns.db.profile == "bg20")
+check("Arathi Basin, 15 a side, is BG 20", ns.ProfileKey() == "bg20")
 INSTANCE.max = 40
 fire("PLAYER_ENTERING_WORLD") RunTimers(0)
-check("Alterac Valley, 40 a side, is AV 40", ns.db.profile == "bg40" and SelectedTab() == 8)
+check("Alterac Valley, 40 a side, is AV 40", ns.ProfileKey() == "bg40" and SelectedTab() == 8)
 INSTANCE.max = 0
 RaidOf(9)
-check("a battleground that gives no size goes by the group", ns.db.profile == "bg10")
+check("a battleground that gives no size goes by the group", ns.ProfileKey() == "bg10")
 INSTANCE = { inside = true, kind = "raid", max = 40 }
 RaidOf(35)
-check("a raid instance is a raid, not a battleground", ns.db.profile == "raid40")
+check("a raid instance is a raid, not a battleground", ns.ProfileKey() == "raid40")
 INSTANCE = nil
 RAID, GROUP = false, {}
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
-check("out and alone, back to Solo", ns.db.profile == "solo" and ns.Profile().water[7] == soloWater)
-ns.db.profileAuto = false
+check("out and alone, back to Solo", ns.ProfileKey() == "solo" and ns.Profile().water[7] == soloWater)
+-- The user's case: solo, with the Raid 40 tab open, Ready conjures Solo's amounts.
+ns.Profile("solo").water[7] = C_Item.GetItemCount(8079) + 10
+ns.Profile("raid40").water[7] = C_Item.GetItemCount(8079) + 100
+Click(P.tabs[5])
+Click(P.readyButton)
+check("solo with the Raid 40 tab open, Ready conjures Solo's amounts", C.armed and C.working == ns.WATER[7]
+  and ns.Target(C.working) == C_Item.GetItemCount(8079) + 10 and P.readyDetail.text:find("(Solo)", 1, true) ~= nil, P.readyDetail.text)
+C.Disarm()
+ns.Profile("solo").water[7] = soloWater
+-- Off: a tab you click is what Ready conjures, and it stays put when the group changes.
+local groupSize = P.sections.options.body.checks["Conjure for your group's size"]
+Click(groupSize)
+check("switched off, Ready keeps the profile it was on", not ns.db.profileAuto and ns.ProfileKey() == "solo" and SelectedTab() == 1)
 GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
-check("with Switch profile with your group off, it stays put", ns.db.profile == "solo")
+check("and stays put when your group changes", ns.ProfileKey() == "solo")
+Click(P.tabs[5])
+check("a tab you click is then what Ready conjures", ns.ProfileKey() == "raid40" and SelectedTab() == 5 and P.tabs[5].inUse.shown)
+Click(groupSize)
+check("on again, Ready goes back to your group's size", ns.db.profileAuto and ns.ProfileKey() == "party" and SelectedTab() == 2)
 GROUP = {}
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
-ns.db.profileAuto = true
 ns.Profile("raid40").water[7] = C_Item.GetItemCount(8079) + 100
-ns.SetProfile("raid40", "test")
+RaidOf(25)
 UI.Refresh()
-check("Ready works to the profile in use", P.readyDetail.text:find("Crystal Water, %d+ of " .. ns.Profile("raid40").water[7]) ~= nil, P.readyDetail.text)
-check("the log has the switches", table.concat(ConjurerLog.entries, "\n"):find("profile: Raid 40 (test)", 1, true) ~= nil
+check("Ready works to your group's profile", P.readyDetail.text:find("Crystal Water, %d+ of " .. ns.Profile("raid40").water[7] .. " %(Raid 40%)") ~= nil, P.readyDetail.text)
+check("the log has the switches", table.concat(ConjurerLog.entries, "\n"):find("profile: Raid 40 (picked)", 1, true) ~= nil
   and table.concat(ConjurerLog.entries, "\n"):find("profile: AV 40 (your group)", 1, true) ~= nil)
-ns.SetProfile("solo", "test")
+RAID, GROUP = false, {}
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
 check("the debug report names the profile", table.concat(ns.DebugReport(), "\n"):find("profile: Solo; follows your group: true; your group now: Solo", 1, true) ~= nil)
 
 -- ---- Odds and ends ------------------------------------------------------

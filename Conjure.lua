@@ -677,18 +677,23 @@ end
 -- What the window shows about Ready
 -- ------------------------------------------------------------------
 
+-- The profile Ready conjures to, by name.
+local function ProfileLabel()
+	return ns.PROFILE_BY_KEY[ns.ProfileKey()].label
+end
+
 function C.Status()
 	if not ns.isMage then return "Not a mage", "Conjurer only works on a mage." end
 	local row = C.armed and (C.placed or C.CurrentRow()) or C.CurrentRow()
 	if C.armed then
 		row = C.working or row
-		local detail = row and (ns.ShortName(row) .. ": " .. ns.Count(row.item) .. " of " .. ns.Target(row)) or "Finishing"
+		local detail = row and (ns.ShortName(row) .. ": " .. ns.Count(row.item) .. " of " .. ns.Target(row) .. " (" .. ProfileLabel() .. ")") or "Finishing"
 		if not C.HoldReady() then detail = detail .. ". Hold to cast is off, so press once per cast" end
 		return "Ready: hold " .. C.KeyText(), detail
 	end
-	if not row then return "Nothing to conjure", "Every target is met. Raise a target to conjure more." end
+	if not row then return "Nothing to conjure", "Every " .. ProfileLabel() .. " target is met. Raise a target to conjure more." end
 	local detail = "Then hold " .. C.KeyText() .. " to conjure. Next: " .. ns.ShortName(row) .. ", "
-		.. ns.Count(row.item) .. " of " .. ns.Target(row) .. "."
+		.. ns.Count(row.item) .. " of " .. ns.Target(row) .. " (" .. ProfileLabel() .. ")."
 	if not C.HoldReady() and not ns.db.manageCVars then
 		detail = detail .. " Hold to cast is off in the game's options."
 	end

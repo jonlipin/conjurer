@@ -219,6 +219,8 @@ function T.FillTargets(announce)
 			if n > 0 then parts[#parts + 1] = n .. " " .. ns.ShortName(list[r]) end
 		end
 	end
+	-- They went into the profile Ready conjures to, so the window shows that one.
+	if ns.UI then ns.UI.viewKey = nil end
 	if announce then
 		ns.Print("Targets set from your group: " .. (#parts > 0 and table.concat(parts, ", ") or "nothing") .. ".")
 	end

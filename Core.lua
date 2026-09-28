@@ -289,9 +289,10 @@ for i, def in ipairs(ns.PROFILES) do
 	ns.PROFILE_BY_KEY[def.key] = def
 end
 
--- A profile's targets ({ water = {rank = n}, food = {...} }), the one in use when no key is given.
+-- A profile's targets ({ water = {rank = n}, food = {...} }), the one Ready conjures to when no key
+-- is given.
 function ns.Profile(key)
-	key = key or (ns.db and ns.db.profile) or "solo"
+	key = key or ns.ProfileKey()
 	if not ns.PROFILE_BY_KEY[key] then key = "solo" end
 	local profiles = ns.db.profiles
 	local p = profiles[key]
@@ -304,15 +305,20 @@ function ns.Profile(key)
 	return p
 end
 
+-- The profile Ready conjures to: the one for your group's size right now. With "Conjure for your
+-- group's size" off, the tab you picked instead. The window's tabs otherwise only choose which
+-- profile's amounts you are looking at and editing.
 function ns.ProfileKey()
+	if ns.db and ns.db.profileAuto then return ns.Bracket() end
 	local key = ns.db and ns.db.profile
 	return ns.PROFILE_BY_KEY[key] and key or "solo"
 end
 
-function ns.Target(entry)
+-- How many of a rank to have: in the profile Ready conjures to, or in the one given.
+function ns.Target(entry, key)
 	if not ns.db then return 0 end
 	if entry.kind == "gem" then return ns.KeepsGem(entry) and 1 or 0 end
-	return tonumber(ns.Profile()[entry.kind][entry.rank]) or 0
+	return tonumber(ns.Profile(key)[entry.kind][entry.rank]) or 0
 end
 
 -- A gem is kept when "Keep your mana gems" is on and its own box is ticked (they all start ticked).
@@ -322,8 +328,8 @@ function ns.KeepsGem(gem)
 end
 
 -- Zero is stored rather than removed, so a target the player cleared stays cleared.
-function ns.SetTarget(entry, value)
-	ns.Profile()[entry.kind][entry.rank] = math.max(0, math.floor((tonumber(value) or 0) + 0.5))
+function ns.SetTarget(entry, value, key)
+	ns.Profile(key)[entry.kind][entry.rank] = math.max(0, math.floor((tonumber(value) or 0) + 0.5))
 end
 
 -- The best rank of a kind this character knows.
@@ -395,15 +401,20 @@ function ns.SetProfile(key, why)
 	return true
 end
 
--- Moves to the profile for your group, when your group has moved into another size.
+-- When your group moves into another size, Ready moves to that size's profile by itself (it reads
+-- ns.Bracket() each time); this says so, keeps a lit Ready on the new targets, and puts the window
+-- back on the profile in use.
 function ns.FollowGroup(quiet)
-	if not (ns.db and ns.db.profileAuto) then return end
+	if not ns.db then return end
 	local bracket = ns.Bracket()
 	if bracket == ns.db.lastBracket then return end
 	ns.db.lastBracket = bracket
-	if ns.SetProfile(bracket, "your group") and not quiet then
-		ns.Print("Profile: " .. ns.PROFILE_BY_KEY[bracket].label .. ".")
-	end
+	if not ns.db.profileAuto then return end
+	ns.Log("profile: " .. ns.PROFILE_BY_KEY[bracket].label .. " (your group)")
+	if ns.UI then ns.UI.viewKey = nil end
+	if ns.Conjure and ns.Conjure.armed then ns.Conjure.Update() end
+	if not quiet then ns.Print("Profile: " .. ns.PROFILE_BY_KEY[bracket].label .. ".") end
+	ns.Refresh()
 end
 
 -- The item's name as the client spells it, once the client has it cached.

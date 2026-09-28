@@ -11,6 +11,13 @@ local report = ns.report
 local UI = {}
 ns.UI = UI
 
+-- The profile the sliders show and set: the tab you clicked, else the one Ready conjures to.
+UI.viewKey = nil
+function UI.ViewKey()
+	if ns.db and ns.db.profileAuto and UI.viewKey and ns.PROFILE_BY_KEY[UI.viewKey] then return UI.viewKey end
+	return ns.ProfileKey()
+end
+
 local WIDTH, HEIGHT = 648, 640 -- the eight profile tabs, side by side at the art's 72 minimum, fit the list
 local ROW_H = 28
 local SLIDER_W = 178
@@ -641,7 +648,7 @@ end
 local function RankSummary(kind)
 	local ranks, have, want = 0, 0, 0
 	for _, entry in ipairs(ns.KINDS[kind]) do
-		local t = ns.Target(entry)
+		local t = ns.Target(entry, UI.ViewKey())
 		if t > 0 and ns.Known(entry.spell) and ns.Shown(entry) then
 			ranks = ranks + 1
 			have = have + math.min(ns.Count(entry.item), t)
@@ -715,7 +722,7 @@ local function BuildRanks(body, kind)
 		row.have:SetPoint("LEFT", 266, 0)
 		row.have:SetWidth(62)
 		row.slider = NewSlider(row, SLIDER_W, 0, 300, 5, function(v)
-			ns.SetTarget(entry, v)
+			ns.SetTarget(entry, v, UI.ViewKey())
 			ns.Refresh()
 		end)
 		row.slider:SetPoint("LEFT", 330, 0)
@@ -745,7 +752,7 @@ local function RefreshRanks(kind)
 			row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
 			row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
 			row:Show()
-			local have, target = ns.Count(entry.item), ns.Target(entry)
+			local have, target = ns.Count(entry.item), ns.Target(entry, UI.ViewKey())
 			row.icon:SetTexture(ns.ItemIcon(entry))
 			row.name:SetText(ns.ShortName(entry))
 			row.level:SetText("Level " .. entry.level)
@@ -1247,21 +1254,25 @@ local function BuildOptions(body)
 			function() return ns.db.leaveCVarsOn end, function(v) ns.db.leaveCVarsOn = v end,
 			"Off: they go back to how you had them. On: they stay on." },
 		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
-		{ "Switch profile with your group", function() return ns.db.profileAuto end,
+		{ "Conjure for your group's size", function() return ns.db.profileAuto end,
 			function(v)
+				-- Off, Ready keeps to the profile it was on until you click another tab.
+				if not v then ns.db.profile = ns.ProfileKey() end
 				ns.db.profileAuto = v
-				if v then
-					ns.db.lastBracket = nil
-					ns.FollowGroup()
-				end
+				UI.viewKey = nil
+				ns.Log("profile: " .. ns.PROFILE_BY_KEY[ns.ProfileKey()].label .. (v and " (your group)" or " (kept)"))
+				if ns.Conjure.armed then ns.Conjure.Update() end
+				ns.Refresh()
 			end,
-			"Solo, party, raid of 10, 20 or 40, or a battleground by its size. A profile tab you click holds until your group changes size." },
+			"On: Ready conjures the profile for your group now (solo, party, raid of 10, 20 or 40, or a battleground by its size), and clicking a tab only shows its amounts to set. Off: Ready conjures the tab you click." },
 		{ "Show the minimap button", function() return ns.db.minimap.shown end,
 			function(v) ns.db.minimap.shown = v if ns.Minimap then ns.Minimap.Apply() end end, nil },
 	}
+	body.checks = {}
 	for _, c in ipairs(checks) do
 		local cb = NewCheck(body, c[1], c[2], c[3], c[4])
 		cb:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+		body.checks[c[1]] = cb
 		y = y + 26
 	end
 	y = y + 4
@@ -1363,22 +1374,47 @@ local function BuildTabs()
 		else
 			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", TAB_GAP, 0)
 		end
+		-- A tab you click only shows its amounts, to see and set; Ready conjures the profile for your
+		-- group's size, marked with a check. With "Conjure for your group's size" off, a click picks
+		-- the profile Ready conjures instead.
 		tab:SetScript("OnClick", Guard("profile tab", function()
 			Sound("IG_CHARACTER_INFO_TAB", 841)
-			ns.SetProfile(def.key, "picked")
+			if ns.db.profileAuto then
+				UI.viewKey = def.key ~= ns.ProfileKey() and def.key or nil
+				UI.Refresh()
+			else
+				ns.SetProfile(def.key, "picked")
+			end
 		end))
 		tab:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_TOP")
 			GameTooltip:SetText(def.label .. " profile", 1, 1, 1)
 			GameTooltip:AddLine(def.tip, nil, nil, nil, true)
-			GameTooltip:AddLine("How much of each rank of water and food to conjure: the sliders above.", 0.8, 0.8, 0.8, true)
-			if ns.Bracket() == def.key then GameTooltip:AddLine("Your group is this size now.", 0.4, 0.85, 0.4) end
+			local inUse = ns.ProfileKey() == def.key
 			if ns.db.profileAuto then
-				GameTooltip:AddLine("The profile follows your group by itself; one you click holds until your group changes size.",
-					0.6, 0.85, 1, true)
+				if inUse then
+					GameTooltip:AddLine("Your group is this size now, so Ready conjures these amounts.", 0.4, 0.85, 0.4, true)
+				else
+					GameTooltip:AddLine("Click to see and set these amounts. Ready conjures them when your group is this size; now it conjures "
+						.. ns.PROFILE_BY_KEY[ns.ProfileKey()].label .. ".", 0.8, 0.8, 0.8, true)
+				end
+			else
+				GameTooltip:AddLine(inUse and "Ready conjures these amounts: you picked this tab." or "Click to conjure these amounts instead.",
+					0.8, 0.8, 0.8, true)
+				if ns.Bracket() == def.key then GameTooltip:AddLine("Your group is this size now.", 0.4, 0.85, 0.4) end
 			end
 			GameTooltip:Show()
 		end)
+		tab.inUse = tab:CreateTexture(nil, "OVERLAY")
+		tab.inUse:SetSize(12, 12)
+		tab.inUse:SetPoint("RIGHT", tab.Text, "LEFT", -2, 0)
+		if ns.HasAtlas("common-icon-checkmark") then
+			tab.inUse:SetAtlas("common-icon-checkmark")
+		else
+			tab.inUse:SetSize(6, 6)
+			tab.inUse:SetColorTexture(0.4, 0.85, 0.4, 1)
+		end
+		tab.inUse:Hide()
 		tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		tabs[i] = tab
 	end
@@ -1393,7 +1429,11 @@ local function BuildTabs()
 end
 
 local function RefreshTabs()
-	local index = ns.PROFILE_BY_KEY[ns.ProfileKey()].index
+	local index = ns.PROFILE_BY_KEY[UI.ViewKey()].index
+	local inUse = ns.ProfileKey()
+	for i, tab in ipairs(tabs) do
+		if tab.inUse then tab.inUse:SetShown(ns.PROFILES[i].key == inUse) end
+	end
 	if tabStyle == "PanelTabButtonTemplate" and PanelTemplates_SetTab then
 		pcall(PanelTemplates_SetTab, tabStrip, index)
 		-- The selected tab's taller art is lifted above both its neighbours.
@@ -1596,6 +1636,9 @@ function UI.Refresh()
 	if not (frame and frame:IsShown()) then return end
 	local C = ns.Conjure
 	local title, detail = C.Status()
+	if UI.ViewKey() ~= ns.ProfileKey() then
+		detail = detail .. " Showing " .. ns.PROFILE_BY_KEY[UI.ViewKey()].label .. "'s amounts."
+	end
 	readyTitle:SetText(title)
 	if C.armed then readyTitle:SetTextColor(0.35, 0.85, 1) else readyTitle:SetTextColor(1, 0.82, 0) end
 	readyDetail:SetText(detail)
