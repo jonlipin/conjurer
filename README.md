@@ -20,6 +20,7 @@ A Blizzard-style window with the Ready bar at the top and six sections you can f
   out of range or already handed out. The Trade button asks them to trade and fills the window.
 - **Eat and drink macro**: one action bar button that eats your best conjured food and drinks your
   best conjured water at the same time.
+- **Low food and water alert**: an icon that shows when you run low, with a threshold for each.
 - **Options**: the chime, hold to cast, the minimap button, and the debug report.
 
 ## Ready and hold to cast
@@ -30,7 +31,8 @@ button on an action bar you don't show (Action Bar 8 first), puts the next conju
 and points the key you picked at that button's own key binding. Holding the key is then exactly
 like holding one of your action bar keys.
 
-- Click **Ready** when you're set. It lights up like a spell alert.
+- Click the **play** button on the Ready icon when you're set. It lights up like a spell alert and
+  the play button turns into a stop button.
 - Hold your key. When a row reaches its target, it chimes and the button moves on to the next row.
   If the game keeps the hold going across the change, one hold does everything.
 - When every target is met, Ready switches itself off, the borrowed button is emptied and your key
@@ -54,6 +56,14 @@ Trade button to finish. What was handed over is counted only once the trade comp
 Click **Make macro** (or drag the icon to your bar). Conjurer writes a macro called Conjurer Eat
 that uses your best conjured food and water by item id, so it works in any client language, and
 rewrites it as your bags change, out of combat. Delete it and Conjurer leaves it deleted.
+
+## The low food and water alert
+
+When your conjured water or food drops below the amount you set (20 water and 10 food to start
+with), an icon for it appears, glowing like a spell alert, with how many you have left. It counts
+every rank you're high enough to use, only alerts for what you can conjure, and hides in combat.
+Click it to open Conjurer, right-click it to start conjuring, and drag it wherever you like (**Show
+it to move it** shows it so you can). A sound when it appears is optional.
 
 ## Commands
 

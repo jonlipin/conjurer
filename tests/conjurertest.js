@@ -16,7 +16,7 @@ const { lua, lauxlib, lualib, to_luastring } = require('fengari');
 let DIR = process.argv.slice(2).find(a => !a.startsWith('--')) || path.resolve(__dirname, '..');
 DIR = DIR.replace(/\\/g, '/');
 if (!DIR.endsWith('/')) DIR += '/';
-const files = ['Core.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'UI.lua', 'Minimap.lua'];
+const files = ['Core.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'UI.lua', 'Alert.lua', 'Minimap.lua'];
 
 const stub = String.raw`
 local unpack = unpack or table.unpack
@@ -135,7 +135,8 @@ KNOWN_ATLASES = {}
 for _, a in ipairs({ "Options_ListExpand_Left", "_Options_ListExpand_Middle", "Options_ListExpand_Right",
   "Options_ListExpand_Right_Expanded", "UI-HUD-ActionBar-IconFrame-Mask", "UI-HUD-ActionBar-IconFrame",
   "UI-HUD-ActionBar-IconFrame-Down", "UI-HUD-ActionBar-IconFrame-Mouseover", "UI-HUD-ActionBar-Proc-Loop-Flipbook",
-  "classicon-mage", "classicon-priest", "classicon-warrior", "classicon-hunter", "classicon-warlock" }) do
+  "classicon-mage", "classicon-priest", "classicon-warrior", "classicon-hunter", "classicon-warlock",
+  "charactercreate-customize-playbutton", "charactercreate-customize-stopbutton" }) do
   KNOWN_ATLASES[a] = true
 end
 C_Texture = { GetAtlasInfo = function(a) if BAD_ATLAS then return nil end return KNOWN_ATLASES[a] and { width = 10 } or nil end }
@@ -650,7 +651,12 @@ check("the round portrait shows Conjure Water", ConjurerFrame.PortraitContainer.
 check("Escape closes it", UISpecialFrames[1] == "ConjurerFrame")
 check("the inset is lowered for the Ready bar", ConjurerFrame.Inset.points[1][5] == -88)
 check("it opened with the spellbook's sound", Played(829))
-check("six sections", #P.content.kids >= 12 and P.sections.macro ~= nil)
+check("seven sections", #P.content.kids >= 14 and P.sections.macro ~= nil and P.sections.alert ~= nil)
+check("the icon's rounded mask is Blizzard's size, centred, so the icon fills the frame",
+  P.readyButton.iconMask and math.abs(P.readyButton.iconMask.w - 42 * 64 / 45) < 0.01 and P.readyButton.iconMask.points[1][1] == "CENTER")
+check("a play button sits over the Ready icon", P.readyButton.play.shown and P.readyButton.play.atlas == "charactercreate-customize-playbutton"
+  and not P.readyButton.stop.shown and not P.readyButton.playText.shown)
+check("and it's lit up while there's something to start", P.readyButton.play.desaturated == false and P.readyButton.play.alpha == 1)
 check("the headers use Blizzard's list header art", P.sections.water.header.Right and P.sections.water.header.Right.atlas == "Options_ListExpand_Right_Expanded")
 check("Options starts closed", P.sections.options.body.shown == false and P.sections.options.header.Right.atlas == "Options_ListExpand_Right")
 check("the others start open", P.sections.water.body.shown and P.sections.food.body.shown and P.sections.shares.body.shown and P.sections.group.body.shown)
@@ -665,7 +671,8 @@ check("names drop the word Conjured", waterRows[1].name.text == "Crystal Water",
 check("each row says the level needed", waterRows[1].level.text == "Level 55" and waterRows[7].level.text == "Level 1")
 check("and how many you have", waterRows[1].have.text == "Have 0")
 check("the slider shows the target", waterRows[1].slider.Slider.value == 40)
-check("the Ready bar says what's next", P.readyTitle.text == "Ready" and P.readyDetail.text:find("Next: Crystal Water, 0 of 40", 1, true) ~= nil, P.readyDetail.text)
+check("the Ready bar says to press play, then what's next", P.readyTitle.text == "Click play to start"
+  and P.readyDetail.text == "Then hold F to conjure. Next: Crystal Water, 0 of 40.", P.readyDetail.text)
 check("the key button shows the key", P.keyButton.text == "Key: F")
 
 -- Moving a slider sets the target; syncing it back does not.
@@ -713,6 +720,8 @@ check("and what it was is remembered", ns.db.savedCVars and ns.db.savedCVars.Act
 check("the glow is on and playing", P.readyGlow.shown and P.readyAnim.playing)
 check("the title says what to hold", P.readyTitle.text == "Ready: hold F", P.readyTitle.text)
 check("the minimap button lights too", ConjurerMinimapButton.lit.shown)
+check("the play button turns into a stop button", P.readyButton.stop.shown and not P.readyButton.play.shown
+  and P.readyButton.stop.atlas == "charactercreate-customize-stopbutton")
 check("the slot is remembered for next time", ns.db.slot.bar == "MultiBar7" and ns.db.slot.index == 12)
 
 local casts = Hold("F", 100)
@@ -735,6 +744,7 @@ check("the debug report says so", reportText:find("hold to cast: works (15 casts
 Click(P.readyButton)
 check("with every target met Ready stays off", C.armed == false and ChatWith("Nothing to conjure") == 1)
 check("the bar says so", P.readyTitle.text == "Nothing to conjure")
+check("and the play button greys out", P.readyButton.play.shown and P.readyButton.play.desaturated == true and P.readyButton.play.alpha < 1)
 
 -- Short hold, let go early, hold again.
 ns.db.targets.water[7] = 60
@@ -1040,6 +1050,95 @@ check("a refused action is logged with its stage", #ns.refused == 1 and ns.refus
 fire("ADDON_ACTION_FORBIDDEN", "SomeOtherAddon", "UNKNOWN()")
 check("another addon's is not", #ns.refused == 1)
 
+-- ---- The low food and water alert --------------------------------------------
+if C.armed then C.Disarm() end
+local Al = ns.Alert
+ClearBags()
+AddItems(8079, 40)
+AddItems(22895, 20)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("with plenty of both no alert shows", ConjurerAlert == nil or not ConjurerAlert.shown)
+ClearBags()
+AddItems(8079, 5)
+AddItems(22895, 20)
+PLAYED = {}
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("low on water, the water alert shows", ConjurerAlertWater:IsVisible() and not ConjurerAlertFood:IsVisible())
+check("with how many are left", tostring(ConjurerAlertWater.count.text) == "5")
+check("its icon is the best water", ConjurerAlertWater.icon.texture == "itemicon:8079")
+check("and the proc glow", ConjurerAlertWater.glow.shown and ConjurerAlertWater.anim.playing)
+check("the alert is one icon wide", ConjurerAlert.w == 40)
+check("no sound unless asked for", not Played(3175))
+check("the log says when it came up", table.concat(ConjurerLog.entries, "\n"):find("alert: water low, 5 left (alert below 20)", 1, true) ~= nil)
+ClearBags()
+AddItems(8079, 5)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86
+  and ConjurerAlertWater.points[1][4] == 0 and ConjurerAlertFood.points[1][4] == 46)
+fire("PLAYER_REGEN_DISABLED") RunTimers(0)
+check("hidden in combat", not ConjurerAlert.shown)
+fire("PLAYER_REGEN_ENABLED") RunTimers(0)
+check("back after it", ConjurerAlert.shown)
+ns.db.alert.sound = true
+AddItems(8079, 40)
+fire("BAG_UPDATE_DELAYED")
+ClearBags()
+AddItems(22895, 20)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("with the sound on it chimes as water runs low", Played(3175))
+ns.db.alert.sound = false
+PLAYER_LEVEL = 50
+ClearBags()
+AddItems(8079, 40)
+AddItems(22895, 20)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("water too high a rank to drink doesn't count", ConjurerAlertWater:IsVisible() and tostring(ConjurerAlertWater.count.text) == "0")
+PLAYER_LEVEL = 60
+ns.db.alert.water = 0
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+ClearBags()
+AddItems(22895, 20)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("a threshold of 0 never alerts", not ConjurerAlert.shown)
+ns.db.alert.water = 20
+ns.db.alert.enabled = false
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("switched off, it stays hidden", not ConjurerAlert.shown)
+ns.db.alert.enabled = true
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+ns.db.targets.water[7] = 40
+ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "RightButton") RunTimers(0)
+check("right-clicking it starts conjuring", C.armed)
+ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "RightButton") RunTimers(0)
+check("and again stops", not C.armed)
+ConjurerFrame:Hide()
+ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "LeftButton") RunTimers(0)
+check("clicking it opens Conjurer", ConjurerFrame.shown)
+ns.db.alert.point = nil
+ConjurerAlertWater.scripts.OnDragStop(ConjurerAlertWater)
+check("dragging it saves where it is", type(ns.db.alert.point) == "table" and ns.db.alert.point[1] == "CENTER")
+AddItems(8079, 40)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("stocked up again, it goes", not ConjurerAlert.shown)
+Click(P.alertMove)
+check("Show it to move it shows both icons anyway", ConjurerAlert.shown and ConjurerAlertWater.shown and ConjurerAlertFood.shown
+  and P.alertMove.text == "Done moving")
+Click(P.alertMove)
+check("Done moving puts it away", not ConjurerAlert.shown and P.alertMove.text == "Show it to move it")
+Click(P.alertMove)
+ConjurerFrame:Hide()
+check("closing the window ends moving too", not Al.preview and not ConjurerAlert.shown)
+UI.Show() RunTimers(0)
+P.sections.alert.body.waterSlider.Slider:SetValue(30)
+RunTimers(0)
+check("the slider sets the water threshold", ns.db.alert.water == 30)
+ns.db.collapsed.alert = true
+UI.Refresh()
+check("closed, the section sums it up", P.sections.alert.header.Summary.text == "water below 30, food below 10", P.sections.alert.header.Summary.text)
+ns.db.collapsed.alert = false
+ns.db.alert.water = 20
+UI.Refresh()
+
 -- ---- The eat and drink macro ----------------------------------------------
 local Mac = ns.Macro
 ClearBags()
@@ -1221,6 +1320,8 @@ const scenarios = [
     for _, row in ipairs(ns.UI.parts.rankRows.food) do if row.shown then shownRows = shownRows + 1 end end
     check("and shows no rows", shownRows == 0)
     check("the Water list shows its one rank", ns.UI.parts.rankRows.water[7].shown and ns.UI.parts.sections.water.body.empty.shown == false)
+    fire("BAG_UPDATE_DELAYED") RunTimers(0)
+    check("out of water it alerts, but never about food it can't make", ConjurerAlert.shown and ConjurerAlertWater.shown and not ConjurerAlertFood.shown)
   ` },
   { label: 'no FlipBook', code: String.raw`
     BAD_FLIPBOOK = true
@@ -1284,6 +1385,11 @@ const bareDriver = driver
   .replace(/check\("sliders are Blizzard's stepper sliders"[^\n]*\n/, 'check("the sliders fall back to plain ones", ns.report["slider template"] == "plain")\n')
   .replace(/check\("the Ready glow is the spell alert flipbook"[^\n]*\n/, 'check("the Ready glow falls back to a pulse", ns.report["ready glow"] == "pulse")\n')
   .replace(/check\("its arrow turns"[^\n]*\n/, 'check("its sign turns", P.sections.water.header.Sign.text == "+")\n')
+  .replace(/check\("the icon's rounded mask is Blizzard's size[^\n]*\n[^\n]*\n/, 'check("without the mask atlas the icon is left unmasked", P.readyButton.iconMask == nil)\n')
+  .replace(/check\("a play button sits over the Ready icon"[^\n]*\n[^\n]*\n/, 'check("without the play art the button says Start", P.readyButton.playText.shown and P.readyButton.playText.text == "Start" and not P.readyButton.play.shown)\n')
+  .replace(/check\("and it's lit up while there's something to start"[^\n]*\n/, 'check("in full while there is something to start", P.readyButton.playText.alpha == 1)\n')
+  .replace(/check\("the play button turns into a stop button"[^\n]*\n[^\n]*\n/, 'check("and Stop while lit", P.readyButton.playText.shown and P.readyButton.playText.text == "Stop")\n')
+  .replace(/check\("and the play button greys out"[^\n]*\n/, 'check("and Start fades when there is nothing to start", P.readyButton.playText.text == "Start" and P.readyButton.playText.alpha < 1)\n')
   .replace(/check\("it has the window's templates"[^\n]*\n/, 'check("it has the window\'s stand-ins", all:find("window built: window template plain; slider template plain", 1, true) ~= nil)\n')
   .replace(/check\("the combat guard is a secure state driver"[^\n]*\n/, 'check("without the secure template there is no state driver, and the report says so", #STATE_DRIVERS == 0 and ns.report["combat guard"]:find("none", 1, true) ~= nil)\n')
   .replace(/check\("even in a lockdown the state driver takes the key away"[^\n]*\n/, 'BINDINGS.F = nil\n')

@@ -488,8 +488,8 @@ function C.Status()
 		return "Ready: hold " .. C.KeyText(), detail
 	end
 	if not row then return "Nothing to conjure", "Every target is met. Raise a target to conjure more." end
-	return "Ready", "Next: " .. ns.ShortName(row) .. ", " .. ns.Count(row.item) .. " of " .. ns.Target(row)
-		.. ". Click when you're set, then hold " .. C.KeyText() .. "."
+	return "Click play to start", "Then hold " .. C.KeyText() .. " to conjure. Next: " .. ns.ShortName(row) .. ", "
+		.. ns.Count(row.item) .. " of " .. ns.Target(row) .. "."
 end
 
 -- ------------------------------------------------------------------

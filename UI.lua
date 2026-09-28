@@ -32,9 +32,10 @@ local SECTIONS = {
 	{ key = "shares", title = "Shares by class" },
 	{ key = "group", title = "Group" },
 	{ key = "macro", title = "Eat and drink macro" },
+	{ key = "alert", title = "Low food and water alert" },
 	{ key = "options", title = "Options" },
 }
-local macroButton, macroText, macroStatus, macroMake
+local macroButton, macroText, macroStatus, macroMake, alertMove
 
 local function Guard(label, fn) return ns.Guard(label, fn) end
 
@@ -348,11 +349,16 @@ local function DressIcon(button, size)
 	local icon = button:CreateTexture(nil, "ARTWORK")
 	icon:SetAllPoints()
 	button.icon = icon
+	-- The mask art is 64 wide for a 45 wide icon: most of it is margin. Blizzard leaves it at that
+	-- size, centred on the icon, so only the icon's corners are rounded off. Fitted to the icon it
+	-- shrinks the picture to two thirds and leaves a dark ring inside the frame.
 	if ns.HasAtlas("UI-HUD-ActionBar-IconFrame-Mask") and button.CreateMaskTexture then
 		local mask = button:CreateMaskTexture()
 		mask:SetAtlas("UI-HUD-ActionBar-IconFrame-Mask")
-		mask:SetAllPoints(icon)
+		mask:SetPoint("CENTER", icon, "CENTER")
+		mask:SetSize(size * 64 / 45, size * 64 / 45)
 		icon:AddMaskTexture(mask)
+		button.iconMask = mask
 	end
 	if ns.HasAtlas("UI-HUD-ActionBar-IconFrame") then
 		local w = size * 46 / 45
@@ -379,25 +385,21 @@ local function DressIcon(button, size)
 	end
 	return icon
 end
+UI.DressIcon = DressIcon
 
-local function BuildReadyBar()
-	readyButton = CreateFrame("Button", "ConjurerReadyButton", frame)
-	readyButton:SetSize(42, 42)
-	readyButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 72, -32)
-	readyButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	DressIcon(readyButton, 42)
-
-	-- The spell alert glow the action bars use for a proc: Ready is lit.
-	readyGlow = readyButton:CreateTexture(nil, "OVERLAY", nil, 7)
-	readyGlow:SetPoint("CENTER")
-	readyGlow:SetSize(42 * 1.42, 42 * 1.42)
-	readyGlow:Hide()
-	readyAnim = readyGlow:CreateAnimationGroup()
+-- The spell alert glow the action bars use for a proc, round an icon button. Falls back to a
+-- pulsing highlight. Returns the texture and its animation, both stopped and hidden.
+local function MakeGlow(button, size)
+	local glow = button:CreateTexture(nil, "OVERLAY", nil, 7)
+	glow:SetPoint("CENTER")
+	glow:SetSize(size * 1.42, size * 1.42)
+	glow:Hide()
+	local anim = glow:CreateAnimationGroup()
 	local style
 	if ns.HasAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook") then
-		readyGlow:SetAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook")
+		glow:SetAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook")
 		local ok = pcall(function()
-			local flip = readyAnim:CreateAnimation("FlipBook")
+			local flip = anim:CreateAnimation("FlipBook")
 			flip:SetDuration(1)
 			flip:SetFlipBookRows(6)
 			flip:SetFlipBookColumns(5)
@@ -406,24 +408,66 @@ local function BuildReadyBar()
 			flip:SetFlipBookFrameHeight(0)
 		end)
 		if ok then
-			readyAnim:SetLooping("REPEAT")
+			anim:SetLooping("REPEAT")
 			style = "spell alert flipbook"
 		end
 	end
 	if not style then
 		if ns.HasAtlas("UI-HUD-ActionBar-IconFrame-Mouseover") then
-			readyGlow:SetAtlas("UI-HUD-ActionBar-IconFrame-Mouseover")
+			glow:SetAtlas("UI-HUD-ActionBar-IconFrame-Mouseover")
 		else
-			readyGlow:SetColorTexture(0.35, 0.75, 1, 0.6)
+			glow:SetColorTexture(0.35, 0.75, 1, 0.6)
 		end
-		readyGlow:SetBlendMode("ADD")
-		local pulse = readyAnim:CreateAnimation("Alpha")
+		glow:SetBlendMode("ADD")
+		local pulse = anim:CreateAnimation("Alpha")
 		pulse:SetFromAlpha(0.3)
 		pulse:SetToAlpha(1)
 		pulse:SetDuration(0.6)
-		readyAnim:SetLooping("BOUNCE")
+		anim:SetLooping("BOUNCE")
 		style = "pulse"
 	end
+	return glow, anim, style
+end
+UI.MakeGlow = MakeGlow
+
+-- Character creation's play and stop buttons, laid over the Ready icon so it reads as a button to
+-- press. Other art from this client's atlas table stands in when those are missing.
+local PLAY_ART = { "charactercreate-customize-playbutton", "common-icon-forwardarrow", "CGuy_Play" }
+local STOP_ART = { "charactercreate-customize-stopbutton", "CGuy_Stop" }
+
+local function FirstAtlas(list)
+	for _, atlas in ipairs(list) do
+		if ns.HasAtlas(atlas) then return atlas end
+	end
+	return nil
+end
+
+local function BuildReadyBar()
+	readyButton = CreateFrame("Button", "ConjurerReadyButton", frame)
+	readyButton:SetSize(42, 42)
+	readyButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 72, -32)
+	readyButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	DressIcon(readyButton, 42)
+
+	local play, stop = FirstAtlas(PLAY_ART), FirstAtlas(STOP_ART)
+	readyButton.play = readyButton:CreateTexture(nil, "OVERLAY", nil, 2)
+	readyButton.play:SetPoint("CENTER")
+	readyButton.play:SetSize(30, 30)
+	if play then readyButton.play:SetAtlas(play) end
+	readyButton.stop = readyButton:CreateTexture(nil, "OVERLAY", nil, 2)
+	readyButton.stop:SetPoint("CENTER")
+	readyButton.stop:SetSize(26, 26)
+	if stop then readyButton.stop:SetAtlas(stop) end
+	readyButton.stop:Hide()
+	readyButton.playArt, readyButton.stopArt = play, stop
+	-- Without either piece of art, words say it instead.
+	readyButton.playText = readyButton:CreateFontString(nil, "OVERLAY", "GameFontNormalOutline")
+	readyButton.playText:SetPoint("BOTTOM", 0, 3)
+	readyButton.playText:Hide()
+	report["ready play art"] = (play or "none") .. " / " .. (stop or "none")
+
+	local style
+	readyGlow, readyAnim, style = MakeGlow(readyButton, 42)
 	report["ready glow"] = style
 
 	readyButton:SetScript("OnClick", Guard("Ready button", function(_, which)
@@ -434,8 +478,8 @@ local function BuildReadyBar()
 		end
 		Sound("IG_MAINMENU_OPTION_CHECKBOX_ON", 856)
 	end))
-	Tip(readyButton, "Ready",
-		"Click when you're set to conjure. It lights up, and while it's lit, holding your key conjures each row in turn until its target is met. Click again, or enter combat, to switch it off.")
+	Tip(readyButton, "Start conjuring",
+		"Click to get Ready. The button lights up, and while it's lit, holding your key conjures each row in turn until its target is met. Click again (stop), or enter combat, to switch it off.")
 
 	readyTitle = Text(frame, "GameFontNormalLarge")
 	readyTitle:SetPoint("TOPLEFT", readyButton, "TOPRIGHT", 10, -2)
@@ -620,6 +664,7 @@ local SUMMARY = {
 	end,
 	group = function() return ns.Trade.Summary() end,
 	macro = function() return ns.Macro.Summary() end,
+	alert = function() return ns.Alert.Summary() end,
 	options = function() return "" end,
 }
 
@@ -895,6 +940,46 @@ local function RefreshMacro()
 	end
 end
 
+local function BuildAlert(body)
+	local y = 4
+	local on = NewCheck(body, "Show an alert icon when your conjured water or food runs low",
+		function() return ns.db.alert.enabled end,
+		function(v) ns.db.alert.enabled = v ns.Alert.Update() end,
+		"One icon per kind that's low, with how many you have left. Hidden in combat.")
+	on:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+	y = y + 30
+	for _, kind in ipairs(ns.KIND_ORDER) do
+		local label = Text(body, "GameFontHighlight")
+		label:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 4)
+		label:SetText(ns.KIND_LABEL[kind] .. " below")
+		local slider = NewSlider(body, 178, 0, 100, 5, function(v)
+			ns.db.alert[kind] = v
+			ns.Alert.Update()
+			ns.Refresh()
+		end)
+		slider:SetPoint("TOPLEFT", body, "TOPLEFT", 150, -y)
+		syncers[#syncers + 1] = function() slider:Set(ns.db.alert[kind] or 0) end
+		body[kind .. "Slider"] = slider
+		y = y + ROW_H
+	end
+	local sound = NewCheck(body, "Play a sound when it appears",
+		function() return ns.db.alert.sound end, function(v) ns.db.alert.sound = v end, nil)
+	sound:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+	y = y + 30
+	alertMove = NewButton(body, "Show it to move it", 150, 22)
+	alertMove:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -y)
+	alertMove:SetScript("OnClick", Guard("alert move", function()
+		ns.Alert.SetPreview(not ns.Alert.preview)
+		UI.Refresh()
+	end))
+	local hint = Text(body, "GameFontDisableSmall")
+	hint:SetPoint("LEFT", alertMove, "RIGHT", 10, 0)
+	hint:SetWidth(360)
+	hint:SetText("Drag it into place. Click it to open Conjurer; right-click starts conjuring.")
+	y = y + 30
+	body:SetHeight(y + 4)
+end
+
 local function BuildOptions(body)
 	local y = 4
 	local checks = {
@@ -984,6 +1069,7 @@ local function Build()
 	groupEmpty:SetPoint("TOPLEFT", sections.group.body, "TOPLEFT", 14, -8)
 	groupEmpty:SetText("You're not in a group. Shares go to your party or raid when you are.")
 	BuildMacro(sections.macro.body)
+	BuildAlert(sections.alert.body)
 	BuildOptions(sections.options.body)
 
 	-- Header buttons: they sit left of the header's own +/- art.
@@ -1005,7 +1091,7 @@ local function Build()
 		memberRows = memberRows, readyButton = readyButton, readyGlow = readyGlow, readyAnim = readyAnim,
 		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture,
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
-		macroStatus = macroStatus, macroMake = macroMake,
+		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
 	}
 	local used = {}
 	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
@@ -1025,6 +1111,7 @@ local function Build()
 		Sound("IG_SPELLBOOK_CLOSE", 830)
 		if ticker then ticker:Cancel() ticker = nil end
 		if capturing and UI.EndCapture then UI.EndCapture() end
+		if ns.Alert and ns.Alert.preview then ns.Alert.SetPreview(false) end
 	end)
 	ns.Stage("idle")
 end
@@ -1079,6 +1166,16 @@ function UI.Refresh()
 		readyGlow:Hide()
 		readyButton:UnlockHighlight()
 	end
+	-- Play while there is something to start (greyed when there isn't), stop while lit.
+	local canStart = ns.isMage and C.CurrentRow() ~= nil
+	readyButton.play:SetShown(not C.armed and readyButton.playArt ~= nil)
+	readyButton.play:SetDesaturated(not canStart)
+	readyButton.play:SetAlpha(canStart and 1 or 0.45)
+	readyButton.stop:SetShown(C.armed and readyButton.stopArt ~= nil)
+	local missing = C.armed and not readyButton.stopArt or (not C.armed and not readyButton.playArt)
+	readyButton.playText:SetShown(missing and true or false)
+	readyButton.playText:SetText(C.armed and "Stop" or "Start")
+	readyButton.playText:SetAlpha((C.armed or canStart) and 1 or 0.45)
 	SetPortrait(ns.SpellIcon(ns.WATER[#ns.WATER]))
 
 	if capturing then
@@ -1095,6 +1192,7 @@ function UI.Refresh()
 	for _, sync in ipairs(syncers) do sync() end
 	RefreshGroup(sections.group.body)
 	RefreshMacro()
+	alertMove:SetText(ns.Alert.preview and "Done moving" or "Show it to move it")
 
 	local where = C.where or C.FindSlot()
 	optionsInfo:SetText(where

@@ -7,4 +7,5 @@ First release.
 - Shares by class for your party or raid, filled into the trade window at the best rank each person can use, with a Group list showing who is ready, short, out of range or already handed out.
 - Fill targets from group: every target set to what your group is owed plus what you keep.
 - An eat and drink macro that uses your best conjured food and water with one button, kept up to date as your bags change.
+- An alert icon when your conjured water or food runs low, with a threshold for each, that you can click to start conjuring.
 - A Blizzard-style window with collapsible sections, a minimap button, and a log saved to disk at every /reload for troubleshooting.
