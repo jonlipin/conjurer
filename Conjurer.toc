@@ -13,6 +13,7 @@
 
 Conjurer.xml
 Core.lua
+Bags.lua
 Conjure.lua
 Trade.lua
 Macro.lua

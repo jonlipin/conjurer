@@ -37,10 +37,26 @@ function K.Expected(entry)
 	return ns.Count(entry.item) + Pending(entry) + ((inflight and inflight.spell == entry.spell) and y or 0)
 end
 
--- The next row a click conjures: the first still short of its target, as Ready would take them.
+-- Whether one more cast of a row fits in the bags, after what is on its way.
+function K.Fits(entry)
+	local y = ns.Conjure.Yield(entry) or 1
+	local coming = Pending(entry) + ((inflight and inflight.spell == entry.spell) and y or 0)
+	return ns.Bags.Room(entry.item) - coming >= y
+end
+
+-- The next row a click conjures: the first still short of its target, as Ready would take them,
+-- passing over a row the bags have no room for.
 function K.NextRow()
 	for _, entry in ipairs(ns.Conjure.Rows()) do
-		if ns.Known(entry.spell) and K.Expected(entry) < ns.Target(entry) then return entry end
+		if ns.Known(entry.spell) and K.Expected(entry) < ns.Target(entry) and K.Fits(entry) then return entry end
+	end
+	return nil
+end
+
+-- A row short of its target that doesn't fit, for saying so.
+local function FullRow()
+	for _, entry in ipairs(ns.Conjure.Rows()) do
+		if ns.Known(entry.spell) and K.Expected(entry) < ns.Target(entry) and not K.Fits(entry) then return entry end
 	end
 	return nil
 end
@@ -49,21 +65,44 @@ end
 -- The buttons
 -- ------------------------------------------------------------------
 
-local function Paint(b)
-	local row = K.NextRow()
-	local fallback = false
+-- Out of mana for the next cast, a click drinks your best water instead, until you're full.
+local function Drinking(row)
+	if not (row and ns.db.drinkWhenOOM) then
+		K.drinking = nil
+		return nil
+	end
+	local C = ns.Conjure
+	if K.drinking and (C.ManaFull() or ns.Count(K.drinking.item) == 0) then K.drinking = nil end
+	if not K.drinking and C.ShortOfMana(row, inflight and 2 or 1) then
+		K.drinking = C.DrinkEntry()
+		if K.drinking then ns.Log("click: out of mana for " .. row.name .. ", so a click drinks " .. K.drinking.name) end
+	end
+	return K.drinking
+end
+
+local function Paint(b, next, drink, full)
+	local row, fallback = next, false
 	if not row and b.fallback then
 		row = b.fallback()
+		if row and not K.Fits(row) then row = nil end
 		fallback = row ~= nil
 	end
-	b.row, b.isFallback = row, fallback
-	if row then
+	b.row, b.isFallback, b.full = row, fallback, (not row) and full or nil
+	b.drink = (row and drink) or nil
+	if b.drink then
+		b:SetAttribute("type", "item")
+		b:SetAttribute("item", "item:" .. b.drink.item)
+		b:SetAttribute("spell", nil)
+		b.icon:SetTexture(ns.ItemIcon(b.drink))
+	elseif row then
 		b:SetAttribute("type", "spell")
 		b:SetAttribute("spell", row.spell)
+		b:SetAttribute("item", nil)
 		b.icon:SetTexture(ns.SpellIcon(row))
 	else
 		b:SetAttribute("type", nil)
 		b:SetAttribute("spell", nil)
+		b:SetAttribute("item", nil)
 		local top = ns.TopKnown("water") or ns.WATER[1]
 		b.icon:SetTexture(ns.SpellIcon(top))
 	end
@@ -76,6 +115,13 @@ local function Tooltip(self)
 	if ns.InCombat() then
 		GameTooltip:SetText("Conjure by click", 1, 1, 1)
 		GameTooltip:AddLine("Out of combat only.", 1, 0.5, 0.5, true)
+	elseif self.drink then
+		GameTooltip:SetText("Drink " .. ns.ShortName(self.drink), 1, 1, 1)
+		GameTooltip:AddLine("Out of mana for " .. ns.ShortName(row) .. ": a click drinks until you're full, then it conjures again.",
+			1, 0.82, 0, true)
+	elseif not row and self.full then
+		GameTooltip:SetText("Bags full", 1, 1, 1)
+		GameTooltip:AddLine("No room for more " .. ns.ShortName(self.full) .. ". Make room to conjure.", 1, 0.5, 0.5, true)
 	elseif row then
 		GameTooltip:SetText("Conjure " .. ns.ShortName(row), 1, 1, 1)
 		if self.isFallback then
@@ -111,6 +157,8 @@ function K.Make(name, parent, size, fallback)
 	b:SetScript("PostClick", ns.Guard("click conjure", function(self)
 		if ns.InCombat() then
 			ns.Log("click in combat: nothing (out of combat only)")
+		elseif self.drink then
+			ns.Log("click: drink " .. self.drink.name .. " (out of mana)")
 		elseif self.row then
 			ns.Log("click: conjure " .. self.row.name .. (self.isFallback and " (the alert's pick)" or "") .. " ("
 				.. ns.Count(self.row.item) .. "/" .. ns.Target(self.row) .. ")")
@@ -122,12 +170,16 @@ function K.Make(name, parent, size, fallback)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	buttons[#buttons + 1] = b
 	report["click button"] = "InsecureActionButtonTemplate"
-	Paint(b)
+	K.Refresh()
 	return b
 end
 
 function K.Refresh()
-	for _, b in ipairs(buttons) do Paint(b) end
+	if #buttons == 0 or not ns.db then return end
+	local next = K.NextRow()
+	local drink = Drinking(next)
+	local full = (not next) and FullRow() or nil
+	for _, b in ipairs(buttons) do Paint(b, next, drink, full) end
 end
 
 -- ------------------------------------------------------------------
@@ -171,6 +223,7 @@ ns.On("BAG_UPDATE_DELAYED", function()
 	end
 	K.Refresh()
 end)
+ns.On("UNIT_POWER_UPDATE", function(unit) if ns.Clean(unit) == "player" then K.Refresh() end end)
 ns.On("PLAYER_REGEN_DISABLED", function() K.Refresh() end)
 ns.On("PLAYER_REGEN_ENABLED", function() K.Refresh() end)
 

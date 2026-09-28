@@ -1264,6 +1264,9 @@ local function BuildOptions(body)
 			function() return ns.db.leaveCVarsOn end, function(v) ns.db.leaveCVarsOn = v end,
 			"Off: they go back to how you had them. On: they stay on." },
 		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
+		{ "Drink when you run out of mana", function() return ns.db.drinkWhenOOM end,
+			function(v) ns.db.drinkWhenOOM = v if ns.Conjure.armed then ns.Conjure.Update() end end,
+			"Once a conjure can't be paid for, your key (and the click button) drinks your best conjured water until you're full, then conjures again." },
 		{ "Conjure for your group's size", function() return ns.db.profileAuto end,
 			function(v)
 				-- Off, Ready keeps to the profile it was on until you click another tab.

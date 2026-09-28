@@ -16,7 +16,7 @@ const { lua, lauxlib, lualib, to_luastring } = require('fengari');
 let DIR = process.argv.slice(2).find(a => !a.startsWith('--')) || path.resolve(__dirname, '..');
 DIR = DIR.replace(/\\/g, '/');
 if (!DIR.endsWith('/')) DIR += '/';
-const files = ['Core.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'Click.lua', 'UI.lua', 'Alert.lua', 'Announce.lua', 'Minimap.lua'];
+const files = ['Core.lua', 'Bags.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'Click.lua', 'UI.lua', 'Alert.lua', 'Announce.lua', 'Minimap.lua'];
 
 const stub = String.raw`
 local unpack = unpack or table.unpack
@@ -300,6 +300,24 @@ C_Item = {
 }
 ITEM_NAMES = {}
 
+-- Mana. A spell costs COSTS[id] (none when unset); a cast needs it at the start and spends it at the end.
+MANA, MANA_MAX = 100000, 100000
+COSTS = {}
+function UnitPower(unit) if unit == "player" then return MANA end return 0 end
+function UnitPowerMax(unit) if unit == "player" then return MANA_MAX end return 0 end
+C_Spell.GetSpellPowerCost = function(id) local c = COSTS[id] if not c then return {} end return { { type = 0, name = "MANA", cost = c, minCost = c } } end
+-- An item picked up by id, the way an action button takes one.
+C_Item.PickupItem = function(id) if C_Item.GetItemCount(id) > 0 then CURSOR = { kind = "item", id = id } end end
+function RemoveItems(item, n)
+  for bag = 4, 0, -1 do for slot = 16, 1, -1 do
+    local st = BAGS[bag][slot]
+    if st and st.itemID == item and n > 0 then
+      local take = math.min(st.stackCount, n) st.stackCount = st.stackCount - take n = n - take
+      if st.stackCount <= 0 then BAGS[bag][slot] = nil end
+    end
+  end end
+end
+
 -- Action bars and the cursor
 ACTIONS = {}
 CURSOR = nil
@@ -316,12 +334,12 @@ C_ActionBar = {
   HasAction = function(slot) return ACTIONS[slot] ~= nil end,
   PutActionInSlot = function(slot)
     if COMBAT then error("blocked in combat") end
-    if not CURSOR or CURSOR.kind ~= "spell" then return end
+    if not CURSOR or not (CURSOR.kind == "spell" or (CURSOR.kind == "item" and not CURSOR.from)) then return end
     -- As in game (log of 2026-09-28): a spell put on the button whose key is down while nothing is
     -- being cast makes the client carry the hold on from addon code, which it refuses.
     if KEY_DOWN_SLOT == slot and not CASTING then REFUSED_PLACES = (REFUSED_PLACES or 0) + 1 end
     local old = ACTIONS[slot]
-    ACTIONS[slot] = { kind = "spell", id = CURSOR.id }
+    ACTIONS[slot] = { kind = CURSOR.kind, id = CURSOR.id }
     CURSOR = old and { kind = old.kind, id = old.id } or nil
     PLACED = (PLACED or 0) + 1
   end,
@@ -666,6 +684,16 @@ function Hold(key, max)
   MultiActionButtonDown(barName, id)
   KEY_DOWN_SLOT = slot
   local a = ACTIONS[slot]
+  -- An item on the button: the press uses it once (a drink), and holding repeats nothing.
+  if a and a.kind == "item" then
+    DRANK = (DRANK or 0) + 1
+    RemoveItems(a.id, 1)
+    fire("BAG_UPDATE_DELAYED") RunTimers(0)
+    KEY_DOWN_SLOT = nil
+    MultiActionButtonUp(barName, id)
+    RunTimers(0)
+    return 0
+  end
   local spell = a and a.kind == "spell" and a.id
   local casts = 0
   local queued = spell ~= nil
@@ -689,6 +717,10 @@ function Hold(key, max)
   while queued and casts < (max or 100) do
     CAST_N = CAST_N + 1
     local guid = "Cast-" .. CAST_N
+    if (COSTS[spell] or 0) > MANA then
+      fire("UNIT_SPELLCAST_FAILED", "player", guid, spell) RunTimers(0)
+      break
+    end
     CASTING = true
     fire("UNIT_SPELLCAST_START", "player", guid, spell)
     RunTimers(0)
@@ -720,8 +752,10 @@ function Hold(key, max)
       break
     end
     CASTING = false
+    if COSTS[spell] then MANA = MANA - COSTS[spell] end
     fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spell)
     RunTimers(0)
+    if COSTS[spell] then fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0) end
     pendingItem, pendingN = NS.BY_SPELL[spell].item, YieldOf(spell)
     casts = casts + 1
   end
@@ -1110,6 +1144,105 @@ else
   check("without the insecure action template there's no click button, and nothing breaks", P.clickButton == nil
     and ns.report["click button"] == "none (no InsecureActionButtonTemplate)")
 end
+
+-- ---- Out of mana: the key drinks your best water -------------------------------
+if C.armed then C.Disarm() end
+ClearBags()
+AddItems(8079, 15)
+COSTS[10140] = 100
+MANA_MAX, MANA = 1000, 250
+REFUSED_PLACES = 0
+ERRORS = {}
+ns.Profile().water[7] = 100
+ns.Profile().food[7] = 0
+Click(P.readyButton)
+casts = Hold("F", 100)
+check("with mana for two casts, the hold ends after the second and the key drinks", casts == 2 and C.armed
+  and C.drinking == ns.WATER[7] and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].kind == "item" and ACTIONS[C.where.slot].id == 8079, casts)
+check("it says so", ErrorWith("Out of mana after this cast: F drinks Crystal Water until you're full."))
+check("the water went on the button while a cast was going, so nothing was refused", REFUSED_PLACES == 0, REFUSED_PLACES)
+local waterBefore = C_Item.GetItemCount(8079)
+casts = Hold("F", 100)
+check("the next press drinks your best water", casts == 0 and DRANK == 1 and C_Item.GetItemCount(8079) == waterBefore - 1)
+check("the Ready bar says the key drinks", P.readyDetail.text == "Out of mana: F drinks Crystal Water until you're full", P.readyDetail.text)
+MANA = 900
+fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
+check("not yet full, the key still drinks", C.drinking and ACTIONS[C.where.slot].kind == "item")
+MANA = MANA_MAX
+fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
+check("full again, the conjure spell is back on the button", not C.drinking and ACTIONS[C.where.slot].kind == "spell"
+  and ACTIONS[C.where.slot].id == 10140 and ErrorWith("Mana's full. Hold F to conjure Crystal Water."))
+casts = Hold("F", 3)
+check("and the key conjures again", casts == 3)
+C.Disarm()
+check("Ready off, the borrowed button is empty", ACTIONS[C.where.slot] == nil)
+-- Out of mana with no water to drink: it says so, and the spell stays.
+ClearBags()
+MANA = 50
+ERRORS = {}
+Click(P.readyButton)
+check("out of mana with no water, it says so and keeps the spell", C.armed and not C.drinking
+  and ErrorWith("Out of mana, and no conjured water to drink.") and ACTIONS[C.where.slot].id == 10140)
+C.Disarm()
+-- Drinking switched off.
+AddItems(8079, 15)
+ns.db.drinkWhenOOM = false
+Click(P.readyButton)
+check("with drinking off, the key keeps the spell", C.armed and not C.drinking and ACTIONS[C.where.slot].kind == "spell")
+C.Disarm()
+ns.db.drinkWhenOOM = true
+-- The click button drinks too.
+if not BARE then
+  local CB = P.clickButton
+  ns.Refresh() RunTimers(0)
+  check("out of mana, the click button drinks your best water", CB.attributes.type == "item" and CB.attributes.item == "item:8079"
+    and CB.icon.texture == "itemicon:8079")
+  local uses = #CLICK_USES
+  Click(CB)
+  check("a click drinks", #CLICK_USES == uses + 1 and CLICK_USES[#CLICK_USES] == "item:8079"
+    and Logged("click: drink Conjured Crystal Water (out of mana)"))
+  MANA = 900
+  fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
+  check("it keeps drinking until you're full", CB.attributes.type == "item")
+  MANA = MANA_MAX
+  fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
+  check("then it conjures again", CB.attributes.type == "spell" and CB.attributes.spell == 10140)
+end
+COSTS[10140] = nil
+MANA, MANA_MAX = 100000, 100000
+
+-- ---- Bags full ---------------------------------------------------------------
+ClearBags()
+local savedSizes = { [0] = BAG_SIZE[0], BAG_SIZE[1], BAG_SIZE[2], BAG_SIZE[3], BAG_SIZE[4] }
+BAG_SIZE = { [0] = 16, 0, 0, 0, 0 }
+for s = 1, 14 do BAGS[0][s] = { itemID = 4306, stackCount = 1 } end
+ns.Profile().water[7] = 100
+ns.Profile().food[7] = 0
+REFUSED_PLACES = 0
+CHAT = {}
+Click(P.readyButton)
+local bagCasts, bagHolds = 0, 0
+while C.armed and bagHolds < 5 do
+  bagCasts = bagCasts + Hold("F", 100)
+  bagHolds = bagHolds + 1
+end
+check("with room for 40, Ready conjures 40 and stops, nothing lost", C_Item.GetItemCount(8079) == 40 and bagCasts == 4
+  and bagHolds == 1 and not C.armed, bagCasts .. " casts in " .. bagHolds .. " holds")
+check("saying the last one that fits, then that the bags are full", ErrorWith("Bags full: this is the last Crystal Water that fits.")
+  and ChatWith("Your bags are full: no room for more Crystal Water. Ready is off.") == 1)
+Click(P.readyButton)
+check("and won't start again until there's room", not C.armed
+  and ChatWith("Your bags are full: no room for more Crystal Water. Make room first.") == 1)
+UI.Refresh()
+check("the Ready bar says so", P.readyTitle.text == "Bags full" and P.readyDetail.text == "No room for more Crystal Water. Make room to conjure.",
+  P.readyTitle.text)
+if not BARE then
+  ns.Refresh() RunTimers(0)
+  check("and the click button has nothing to do", P.clickButton.attributes.type == nil and P.clickButton.full == ns.WATER[7])
+end
+BAG_SIZE = savedSizes
+ClearBags()
+ns.Profile().water[7] = 0
 
 -- Combat: Ready goes off before the lockdown.
 ns.Profile().water[7] = C_Item.GetItemCount(8079) + 40

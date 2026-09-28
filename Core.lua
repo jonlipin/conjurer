@@ -121,6 +121,7 @@ local DEFAULTS = {
 	macro = { perCharacter = true, auto = false, made = false },
 	alert = { enabled = true, water = 20, food = 10, sound = false, when = "out", lowerRanks = false },
 	announce = { shown = false, groupOnly = true },
+	drinkWhenOOM = true,
 }
 
 local function Merge(into, from)

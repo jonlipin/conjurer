@@ -58,10 +58,14 @@ local function HasAnAction(slot)
 	return ActionInfo(slot) ~= nil
 end
 
--- The slot holds one of the conjure spells, so it is ours to reuse.
+-- The slot holds one of the conjure spells, so it is ours to reuse; or it's the button Ready
+-- borrowed, holding the water it put there for drinking.
 local function Ours(slot)
 	local kind, id = ActionInfo(slot)
-	return kind == "spell" and ns.BY_SPELL[id] ~= nil
+	if kind == "spell" then return ns.BY_SPELL[id] ~= nil end
+	local saved = ns.db and ns.db.slot
+	return kind == "item" and ns.BY_ITEM[id] ~= nil and ns.BY_ITEM[id].kind == "water"
+		and type(saved) == "table" and saved.number == slot
 end
 C.Ours = Ours
 
@@ -155,7 +159,7 @@ function C.Place(entry)
 	if ns.InCombat() then return false, "in combat" end
 	local kind, id = ActionInfo(where.slot)
 	if kind == "spell" and id == entry.spell then
-		C.placed = entry
+		C.placed, C.placedDrink = entry, nil
 		return true
 	end
 	if GetCursorInfo() then return false, "cursor busy" end
@@ -172,7 +176,41 @@ function C.Place(entry)
 	report["last place"] = placed and ("ok, " .. entry.name .. " on slot " .. where.slot)
 		or ("failed: " .. tostring(why or ("slot " .. where.slot .. " holds " .. tostring(kind) .. " " .. tostring(id))))
 	ns.Log("place " .. entry.name .. " (spell " .. entry.spell .. "): " .. report["last place"])
-	if placed then C.placed = entry end
+	if placed then C.placed, C.placedDrink = entry, nil end
+	return placed, why
+end
+
+-- Puts water on the borrowed button instead, so the key drinks it: for when you're out of mana.
+function C.PlaceDrink(entry)
+	local where = C.where
+	if not where then return false, "no borrowed button" end
+	if ns.InCombat() then return false, "in combat" end
+	local kind, id = ActionInfo(where.slot)
+	if kind == "item" and id == entry.item then
+		C.placedDrink, C.placed = entry, nil
+		return true
+	end
+	if GetCursorInfo() then return false, "cursor busy" end
+	if not Free(where.slot) then return false, "the button was taken by something else" end
+
+	ns.Stage("placing " .. entry.name .. " to drink")
+	local pickup = (C_Item and C_Item.PickupItem) or PickupItem
+	local ok, why = false, "this client has no PickupItem"
+	if pickup then ok, why = pcall(pickup, entry.item) end
+	if ok and GetCursorInfo() then
+		ok, why = PutOnSlot(where.slot)
+	elseif ok then
+		ok, why = false, "the water did not come up on the cursor"
+	end
+	if GetCursorInfo() then ClearCursor() end
+	ns.Stage("idle")
+
+	kind, id = ActionInfo(where.slot)
+	local placed = kind == "item" and id == entry.item
+	report["last place"] = placed and ("ok, " .. entry.name .. " to drink on slot " .. where.slot)
+		or ("failed: " .. tostring(why or "the slot didn't take it"))
+	ns.Log("place " .. entry.name .. " to drink: " .. report["last place"])
+	if placed then C.placedDrink, C.placed = entry, nil end
 	return placed, why
 end
 
@@ -346,6 +384,66 @@ function C.KeyText(key)
 end
 
 -- ------------------------------------------------------------------
+-- Mana and bag room
+-- ------------------------------------------------------------------
+
+local POWER_MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+
+-- What one cast of a row costs, from the spell itself; nil when the client won't say.
+function C.ManaCost(entry)
+	if not (C_Spell and C_Spell.GetSpellPowerCost) then return nil end
+	local ok, costs = pcall(C_Spell.GetSpellPowerCost, entry.spell)
+	if not ok or type(costs) ~= "table" then return nil end
+	for _, c in ipairs(costs) do
+		if ns.Clean(c.type) == POWER_MANA or ns.Clean(c.name) == "MANA" then
+			local cost = tonumber(ns.Clean(c.minCost)) or tonumber(ns.Clean(c.cost))
+			if cost then return cost end
+		end
+	end
+	return nil
+end
+
+-- Your mana now and at most; nils when the client won't say.
+function C.Mana()
+	if not (UnitPower and UnitPowerMax) then return nil end
+	local ok, now = pcall(UnitPower, "player", POWER_MANA)
+	local okMax, max = pcall(UnitPowerMax, "player", POWER_MANA)
+	return ok and tonumber(ns.Clean(now)) or nil, okMax and tonumber(ns.Clean(max)) or nil
+end
+
+-- Whether your mana won't pay for that many more casts of a row (one when not given).
+function C.ShortOfMana(entry, casts)
+	local cost = C.ManaCost(entry)
+	local now = C.Mana()
+	if not (cost and now) or cost <= 0 then return false end
+	return now < cost * (casts or 1)
+end
+
+function C.ManaFull()
+	local now, max = C.Mana()
+	return now ~= nil and max ~= nil and max > 0 and now >= max
+end
+
+-- The best conjured water you have and can drink.
+function C.DrinkEntry()
+	local level = ns.Clean(UnitLevel("player"))
+	level = type(level) == "number" and level or 60
+	for r = #ns.WATER, 1, -1 do
+		local entry = ns.WATER[r]
+		if entry.level <= level and ns.Count(entry.item) > 0 then return entry end
+	end
+	return nil
+end
+
+-- Whether one more cast of a row fits in your bags, after the ones that have landed and are still
+-- on their way (and as many more as given).
+function C.Fits(entry, more)
+	local y = C.Yield and C.Yield(entry) or 1
+	local waiting = ((entry == C.working) and (C.landed or 0) or 0) + (more or 0)
+	return ns.Bags.Room(entry.item) >= y * (waiting + 1)
+end
+
+-- ------------------------------------------------------------------
 -- The plan
 -- ------------------------------------------------------------------
 
@@ -367,10 +465,19 @@ function C.Rows()
 	return rows
 end
 
--- The first row still short of its target that this character can cast.
+-- The first row still short of its target that this character can cast and the bags have room
+-- for. A row with no room is passed over.
 function C.CurrentRow()
 	for _, entry in ipairs(C.Rows()) do
-		if ns.Known(entry.spell) and ns.Count(entry.item) < ns.Target(entry) then return entry end
+		if ns.Known(entry.spell) and ns.Count(entry.item) < ns.Target(entry) and C.Fits(entry) then return entry end
+	end
+	return nil
+end
+
+-- The first row short of its target that the bags have no room for.
+function C.FullRow()
+	for _, entry in ipairs(C.Rows()) do
+		if ns.Known(entry.spell) and ns.Count(entry.item) < ns.Target(entry) and not C.Fits(entry) then return entry end
 	end
 	return nil
 end
@@ -394,7 +501,7 @@ local function Announce(text)
 end
 
 local placeTries = 0
-local function PlaceSoon(entry)
+local function PlaceSoon(entry, drink)
 	-- Never while the key is down and nothing is being cast. The hold has ended then (the button
 	-- moved on), and a spell put back on the held button makes the game carry the hold on from
 	-- Conjurer's code, which it refuses with its "blocked from an action only available to the
@@ -405,16 +512,15 @@ local function PlaceSoon(entry)
 		C.placeOnRelease = true
 		return false
 	end
-	local placed, why = C.Place(entry)
+	local placed, why
+	if drink then placed, why = C.PlaceDrink(entry) else placed, why = C.Place(entry) end
 	if placed or not C.armed then
 		placeTries = 0
 		return placed
 	end
 	if why == "cursor busy" and placeTries < 40 then
 		placeTries = placeTries + 1
-		ns.After(0.25, function()
-			if C.armed and C.CurrentRow() == entry then PlaceSoon(entry) end
-		end)
+		ns.After(0.25, function() if C.armed then C.Update() end end)
 	end
 	return false
 end
@@ -434,7 +540,11 @@ function C.Arm()
 	if not ns.isMage then return Refuse("Conjurer is for mages; this character can't conjure food or water.") end
 	if ns.InCombat() then return Refuse("You can't get Ready in combat.") end
 	local row = C.CurrentRow()
-	if not row then return Refuse("Nothing to conjure: every target is met. Raise a target first.") end
+	if not row then
+		local full = C.FullRow()
+		if full then return Refuse("Your bags are full: no room for more " .. ns.ShortName(full) .. ". Make room first.") end
+		return Refuse("Nothing to conjure: every target is met. Raise a target first.")
+	end
 	if not ns.db.key then return Refuse("Pick the key you'll hold first, with the Key button.") end
 	local where = C.FindSlot()
 	if not where then
@@ -442,7 +552,7 @@ function C.Arm()
 		return Refuse("Every action bar button is in use. Empty one button on Action Bar 6, 7 or 8 for Conjurer to borrow.")
 	end
 	C.where = where
-	ns.db.slot = { bar = where.bar, index = where.index }
+	ns.db.slot = { bar = where.bar, index = where.index, number = where.slot }
 	report["borrowed button"] = where.label .. " button " .. where.index .. ", slot " .. where.slot
 		.. (where.shown and " (a bar you show)" or " (a hidden bar)") .. ", binding " .. where.command
 
@@ -463,6 +573,7 @@ function C.Arm()
 	C.armed = true
 	C.working, C.early, C.inFlight, C.placeOnRelease = row, nil, nil, nil
 	C.ResetRowWatch(row)
+	C.drinking, C.lowWaterSaid = nil, nil
 	ns.Log("Ready is lit; hold to cast " .. (C.HoldReady() and "on" or "OFF (one cast per press)"))
 	if not C.HoldReady() then
 		ns.Print("Press and Hold Casting is off, so each press conjures once. Turn it on in Options > Combat to hold instead.")
@@ -471,6 +582,8 @@ function C.Arm()
 		ns.Print("Borrowed " .. where.label .. " button " .. where.index .. " (every hidden bar was full); it's emptied again when Ready goes off.")
 	end
 	Announce("Ready: hold " .. C.KeyText() .. " to conjure " .. ns.ShortName(row) .. ".")
+	-- Out of mana already: the key drinks first.
+	C.Update()
 	ns.Refresh()
 	return true
 end
@@ -487,6 +600,7 @@ function C.Disarm(reason)
 	end
 	C.placed = nil
 	C.working, C.early, C.inFlight, C.placeOnRelease = nil, nil, nil, nil
+	C.drinking, C.placedDrink = nil, nil
 	C.ResetRowWatch()
 	C.hold.held = false
 	if reason then ns.Print(reason) end
@@ -549,7 +663,7 @@ end
 -- The row that comes after this one, as if this one were finished.
 local function NextRowAfter(entry)
 	for _, e in ipairs(C.Rows()) do
-		if e ~= entry and ns.Known(e.spell) and ns.Count(e.item) < ns.Target(e) then return e end
+		if e ~= entry and ns.Known(e.spell) and ns.Count(e.item) < ns.Target(e) and C.Fits(e) then return e end
 	end
 	return nil
 end
@@ -563,7 +677,33 @@ function C.CastStarted(spell, guid)
 	local y = C.Yield(placed)
 	if not y then return end
 	local expected = ns.Count(placed.item) + (C.landed or 0) * y + y
-	if expected < ns.Target(placed) then return end
+	if expected < ns.Target(placed) then
+		-- Not the row's last cast. The next one has to fit in the bags and be paid for, or the hold
+		-- ends after this one, the same way: the button changes while this cast is going.
+		if not C.Fits(placed, 1) then
+			local nextRow = NextRowAfter(placed)
+			local ok
+			if nextRow then ok = C.Place(nextRow) else ok = C.ClearSlot() end
+			if ok then
+				-- Like a row's last cast: the button stays moved on until the row is looked at again.
+				C.early = placed
+				Announce("Bags full: this is the last " .. ns.ShortName(placed) .. " that fits.")
+				ns.Log("this cast of " .. placed.name .. " fills the bags; the button " .. (nextRow and ("now holds " .. nextRow.name) or "is empty"))
+			end
+		elseif ns.db.drinkWhenOOM and C.ShortOfMana(placed, 2) then
+			local drink = C.DrinkEntry()
+			if drink and C.PlaceDrink(drink) then
+				C.drinking = drink
+				Announce("Out of mana after this cast: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink) .. " until you're full.")
+				ns.Log("out of mana after this cast of " .. placed.name .. "; the button now holds " .. drink.name .. " to drink")
+			elseif not drink and not C.lowWaterSaid then
+				C.lowWaterSaid = true
+				Announce("Almost out of mana, and no conjured water to drink.")
+				ns.Log("almost out of mana, and no conjured water to drink")
+			end
+		end
+		return
+	end
 	local nextRow = NextRowAfter(placed)
 	local ok
 	if nextRow then ok = C.Place(nextRow) else ok = C.ClearSlot() end
@@ -620,7 +760,7 @@ local shortCheck
 local function IsShort()
 	local working = C.working
 	return C.armed and C.early ~= nil and working ~= nil and not C.inFlight and (C.landed or 0) == 0
-		and ns.Count(working.item) < ns.Target(working)
+		and ns.Count(working.item) < ns.Target(working) and C.Fits(working)
 end
 
 local function CheckShortSoon()
@@ -664,12 +804,42 @@ function C.Update()
 		end
 	end
 	if not row then
+		local full = C.FullRow()
+		if full then
+			Announce("Your bags are full. You can let go.")
+			C.Disarm("Your bags are full: no room for more " .. ns.ShortName(full) .. ". Ready is off.")
+			return
+		end
 		Chime("done")
 		Announce("All conjured. You can let go.")
 		C.Disarm("Everything is conjured. Ready is off.")
 		return
 	end
 	C.working = row
+	-- Out of mana: the key drinks your best water until you're full, then conjures again.
+	if C.drinking then
+		if ns.Count(C.drinking.item) == 0 then C.drinking = C.DrinkEntry() end
+		if C.drinking and not C.ManaFull() then
+			if C.placedDrink ~= C.drinking then PlaceSoon(C.drinking, true) end
+			return
+		end
+		ns.Log("drinking done: " .. (C.drinking and "mana full" or "no water left"))
+		C.drinking = nil
+		Announce((C.ManaFull() and "Mana's full. " or "") .. "Hold " .. C.KeyText() .. " to conjure " .. ns.ShortName(row) .. ".")
+	elseif ns.db.drinkWhenOOM and not C.inFlight and C.ShortOfMana(row) then
+		local drink = C.DrinkEntry()
+		if drink then
+			C.drinking = drink
+			Announce("Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink) .. " until you're full.")
+			ns.Log("out of mana for " .. row.name .. "; the key drinks " .. drink.name)
+			PlaceSoon(drink, true)
+			return
+		elseif not C.lowWaterSaid then
+			C.lowWaterSaid = true
+			Announce("Out of mana, and no conjured water to drink.")
+			ns.Log("out of mana for " .. row.name .. ", and no conjured water to drink")
+		end
+	end
 	if C.placed ~= row and not C.early then PlaceSoon(row) end
 end
 
@@ -688,10 +858,15 @@ function C.Status()
 	if C.armed then
 		row = C.working or row
 		local detail = row and (ns.ShortName(row) .. ": " .. ns.Count(row.item) .. " of " .. ns.Target(row) .. " (" .. ProfileLabel() .. ")") or "Finishing"
+		if C.drinking then detail = "Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(C.drinking) .. " until you're full" end
 		if not C.HoldReady() then detail = detail .. ". Hold to cast is off, so press once per cast" end
 		return "Ready: hold " .. C.KeyText(), detail
 	end
-	if not row then return "Nothing to conjure", "Every " .. ProfileLabel() .. " target is met. Raise a target to conjure more." end
+	if not row then
+		local full = C.FullRow()
+		if full then return "Bags full", "No room for more " .. ns.ShortName(full) .. ". Make room to conjure." end
+		return "Nothing to conjure", "Every " .. ProfileLabel() .. " target is met. Raise a target to conjure more."
+	end
 	local detail = "Then hold " .. C.KeyText() .. " to conjure. Next: " .. ns.ShortName(row) .. ", "
 		.. ns.Count(row.item) .. " of " .. ns.Target(row) .. " (" .. ProfileLabel() .. ")."
 	if not C.HoldReady() and not ns.db.manageCVars then
@@ -778,6 +953,11 @@ function C.Init()
 end
 
 ns.On("BAG_UPDATE_DELAYED", function() C.Update() end)
+ns.On("UNIT_POWER_UPDATE", function(unit)
+	if ns.Clean(unit) ~= "player" or not C.armed then return end
+	-- Only the moments that change what the key does: full while drinking, or short of a cast.
+	if (C.drinking and C.ManaFull()) or (not C.drinking and C.working and C.ShortOfMana(C.working)) then C.Update() end
+end)
 
 -- PLAYER_REGEN_DISABLED comes just before the client locks the interface, so the binding and the
 -- button can usually still be cleaned up here; the state driver above covers the rest.
