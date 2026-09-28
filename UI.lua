@@ -23,7 +23,7 @@ local ROW_H = 28
 local SLIDER_W = 178
 
 local frame, scroll, content
-local readyButton, readyGlow, readyAnim, readyTitle, readyDetail, keyButton, keyHint, capture
+local readyButton, readyGlow, readyAnim, readyTitle, readyDetail, keyButton, keyHint, capture, clickButton
 local capturing = false
 local sections = {}
 local rankRows = { water = {}, food = {} }
@@ -509,6 +509,16 @@ local function BuildReadyBar()
 	keyHint:SetText("the key you hold")
 	Tip(keyButton, "The key you hold",
 		"Click, then press the key (or a side mouse button) you want to hold to conjure. Conjurer only uses it while Ready is lit; the rest of the time it does whatever you have it bound to. Escape cancels.")
+
+	-- Conjuring by click instead: one cast per click, no key and no Ready needed.
+	clickButton = ns.Click.Make("ConjurerClickButton", frame, 40)
+	if clickButton then
+		clickButton:SetPoint("TOPRIGHT", keyButton, "TOPLEFT", -18, 4)
+		local clickHint = Text(frame, "GameFontDisableSmall")
+		clickHint:SetPoint("TOP", clickButton, "BOTTOM", 0, -3)
+		clickHint:SetText("or click")
+		clickButton.hint = clickHint
+	end
 
 	-- Covers the window without taking the mouse, so it has a real size to take keys with.
 	capture = CreateFrame("Frame", nil, frame)
@@ -1544,7 +1554,7 @@ local function Build()
 	UI.parts = {
 		frame = frame, content = content, sections = sections, rankRows = rankRows, shareRows = shareRows,
 		memberRows = memberRows, readyButton = readyButton, readyGlow = readyGlow, readyAnim = readyAnim,
-		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture,
+		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture, clickButton = clickButton,
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
 		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs, tabStrip = tabStrip,

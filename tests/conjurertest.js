@@ -16,7 +16,7 @@ const { lua, lauxlib, lualib, to_luastring } = require('fengari');
 let DIR = process.argv.slice(2).find(a => !a.startsWith('--')) || path.resolve(__dirname, '..');
 DIR = DIR.replace(/\\/g, '/');
 if (!DIR.endsWith('/')) DIR += '/';
-const files = ['Core.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'UI.lua', 'Alert.lua', 'Announce.lua', 'Minimap.lua'];
+const files = ['Core.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'Click.lua', 'UI.lua', 'Alert.lua', 'Announce.lua', 'Minimap.lua'];
 
 const stub = String.raw`
 local unpack = unpack or table.unpack
@@ -145,6 +145,7 @@ end
 C_Texture = { GetAtlasInfo = function(a) if BAD_ATLAS then return nil end return KNOWN_ATLASES[a] and { width = 10 } or nil end }
 
 BAD_TEMPLATES = BAD_TEMPLATES or {}
+CLICK_CASTS, CLICK_USES = {}, {}
 CALLBACKS = {}
 
 function CreateFrame(kind, name, parent, template)
@@ -169,6 +170,15 @@ function CreateFrame(kind, name, parent, template)
     parent.Tabs[#parent.Tabs + 1] = f
   end
   if template == "ConjurerScrollFrameTemplate" or template == "UIPanelScrollFrameTemplate" then f.ScrollBar = obj("Slider") end
+  -- The client's InsecureActionButtonTemplate: out of combat a click performs the button's action.
+  if template == "InsecureActionButtonTemplate" then
+    f.scripts.OnClick = function(self, button, down)
+      if InCombatLockdown() then return end
+      local kind = self.attributes.type
+      if kind == "spell" then CLICK_CASTS[#CLICK_CASTS + 1] = self.attributes.spell
+      elseif kind == "item" then CLICK_USES[#CLICK_USES + 1] = self.attributes.item end
+    end
+  end
   if template == "MinimalSliderWithSteppersTemplate" then
     f.Slider = CreateFrame("Slider", nil, f)
     f.cbs = {}
@@ -634,6 +644,7 @@ end
 function Click(button, which)
   if button.kind == "CheckButton" then button.checked = not button.checked end
   button.scripts.OnClick(button, which or "LeftButton")
+  if button.scripts.PostClick then button.scripts.PostClick(button, which or "LeftButton", false) end
   RunTimers(0)
 end
 
@@ -732,6 +743,25 @@ end
 YIELD_OVERRIDE = {}
 function YieldOf(spell)
   return YIELD_OVERRIDE[spell] or NS.FormulaYield(NS.BY_SPELL[spell], PLAYER_LEVEL)
+end
+
+-- A click on a click-to-conjure button and the cast it starts. The items arrive at once, or with
+-- later set, when the returned function is called.
+function ClickCast(button, later)
+  local before = #CLICK_CASTS
+  Click(button)
+  local spell = CLICK_CASTS[before + 1]
+  if not spell then return nil end
+  CAST_N = CAST_N + 1
+  local guid = "Cast-" .. CAST_N
+  CASTING = true
+  fire("UNIT_SPELLCAST_START", "player", guid, spell) RunTimers(0)
+  CASTING = false
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spell) RunTimers(0)
+  local function Arrive() AddItems(NS.BY_SPELL[spell].item, YieldOf(spell)) fire("BAG_UPDATE_DELAYED") RunTimers(0) end
+  if later then return spell, Arrive end
+  Arrive()
+  return spell
 end
 `;
 
@@ -1014,6 +1044,72 @@ check("a row filled during a cast moves the button on then, not at the key up", 
   and C.armed and C.placed and C.placed.spell == ns.FOOD[7].spell, casts)
 C.Disarm()
 ns.Profile().food[7] = 0
+
+-- ---- Conjuring by click ---------------------------------------------------
+if not BARE then
+  local CB = P.clickButton
+  check("the window has a click button, made to cast from a click without being protected", CB ~= nil
+    and CB.template == "InsecureActionButtonTemplate" and CB.parent == ConjurerFrame and CB.attributes.useOnKeyDown == false)
+  base = C_Item.GetItemCount(8079)
+  local baseFood = C_Item.GetItemCount(22895)
+  ns.Profile().water[7] = base + 20
+  ns.Profile().food[7] = baseFood + 10
+  ns.Refresh() RunTimers(0)
+  check("its spell is the next row short of its target", CB.attributes.type == "spell" and CB.attributes.spell == 10140
+    and not CB.icon.desaturated and CB.icon.texture == "spellicon:10140")
+  local spell, arrive = ClickCast(CB, true)
+  check("a click conjures once, with no Ready and no key", spell == 10140 and not C.armed)
+  check("a cast still on its way counts, so the button stays on water for the last one", CB.attributes.spell == 10140)
+  arrive()
+  local before = #CLICK_CASTS
+  Click(CB)
+  spell = CLICK_CASTS[before + 1]
+  CAST_N = CAST_N + 1
+  fire("UNIT_SPELLCAST_START", "player", "Cast-" .. CAST_N, spell) RunTimers(0)
+  check("when a row's last cast starts, the button already holds the next row", spell == 10140 and CB.attributes.spell == 28612)
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-" .. CAST_N, spell) RunTimers(0)
+  check("and stays there while that cast's items are on their way", CB.attributes.spell == 28612)
+  AddItems(8079, 5) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+  check("half of a cast's items arriving leaves the other half still counted", CB.attributes.spell == 28612)
+  AddItems(8079, 5) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+  check("items arriving in parts are counted off as they come", C_Item.GetItemCount(8079) == base + 20 and CB.attributes.spell == 28612)
+  ClickCast(CB)
+  check("the next click conjures food, and then there's nothing left", C_Item.GetItemCount(22895) == baseFood + 10
+    and CB.attributes.type == nil and CB.icon.desaturated)
+  before = #CLICK_CASTS
+  Click(CB)
+  check("with every target met a click casts nothing", #CLICK_CASTS == before)
+  check("the log says what each click did", Logged("click: conjure Conjured Crystal Water") and Logged("click: conjure Conjured Cinnamon Roll")
+    and Logged("click: nothing to conjure"))
+  -- In combat the template does nothing, and the button says so.
+  ns.Profile().water[7] = C_Item.GetItemCount(8079) + 10
+  ns.Refresh() RunTimers(0)
+  EnterCombatLockdown() fire("PLAYER_REGEN_DISABLED") RunTimers(0)
+  before = #CLICK_CASTS
+  Click(CB)
+  check("in combat a click casts nothing and the button greys out", #CLICK_CASTS == before and CB.icon.desaturated
+    and Logged("click in combat: nothing"))
+  COMBAT = false fire("PLAYER_REGEN_ENABLED") RunTimers(0)
+  check("out of combat it's back", not CB.icon.desaturated and CB.attributes.spell == 10140)
+  -- On the alert: every target met, water low. Its button conjures what's low anyway.
+  ClearBags()
+  AddItems(8079, 5)
+  AddItems(22895, 20)
+  ns.Profile().water[7] = 5
+  ns.Profile().food[7] = 10
+  fire("BAG_UPDATE_DELAYED") RunTimers(0)
+  check("the alert has a click button, between its icons and its play button", ConjurerAlertConjure and ConjurerAlertConjure:IsVisible()
+    and ConjurerAlertConjure.parent == ConjurerAlert and ConjurerAlert.w == 40 + 6 + 40 + 6 + 24, ConjurerAlert and ConjurerAlert.w)
+  check("with every target met, the alert's button conjures what's low", ConjurerAlertConjure.attributes.spell == 10140
+    and CB.attributes.type == nil)
+  ClickCast(ConjurerAlertConjure)
+  check("and a click on it does", C_Item.GetItemCount(8079) == 15 and Logged("(the alert's pick)"))
+  ns.Profile().water[7] = 0
+  ns.Profile().food[7] = 0
+else
+  check("without the insecure action template there's no click button, and nothing breaks", P.clickButton == nil
+    and ns.report["click button"] == "none (no InsecureActionButtonTemplate)")
+end
 
 -- Combat: Ready goes off before the lockdown.
 ns.Profile().water[7] = C_Item.GetItemCount(8079) + 40
@@ -1533,7 +1629,8 @@ check("low on water, the water alert shows", ConjurerAlertWater:IsVisible() and 
 check("with how many are left", tostring(ConjurerAlertWater.count.text) == "5")
 check("its icon is the best water", ConjurerAlertWater.icon.texture == "itemicon:8079")
 check("and the proc glow", ConjurerAlertWater.glow.shown and ConjurerAlertWater.anim.playing)
-check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + 24, ConjurerAlert.w)
+local CONJ_W = ConjurerAlertConjure and 46 or 0
+check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + CONJ_W + 24, ConjurerAlert.w)
 check("with a play button and a cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
 check("in Blizzard's art", (ConjurerAlertPlay.art.atlas == "charactercreate-customize-playbutton" and ConjurerAlertSettings.art.atlas == "gm-icon-settings")
   or (BARE and ConjurerAlertPlay.label.text == "Go"))
@@ -1551,7 +1648,7 @@ check("off again, only the best rank counts", ns.db.alert.lowerRanks == false an
 ClearBags()
 AddItems(8079, 5)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
-check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 30
+check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 6 + CONJ_W + 24
   and ConjurerAlertWater.points[1][4] == 0 and ConjurerAlertFood.points[1][4] == 46)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("hidden in combat", not ConjurerAlert.shown)
@@ -2039,7 +2136,7 @@ const bareTemplates = ['ButtonFrameTemplate', 'PortraitFrameTemplate', 'Backdrop
   'UIPanelCloseButton', 'UICheckButtonTemplate', 'ChatConfigCheckButtonTemplate', 'MinimalSliderWithSteppersTemplate',
   'MinimalSliderTemplate', 'UISliderTemplate', 'OptionsSliderTemplate', 'ConjurerScrollFrameTemplate',
   'UIPanelScrollFrameTemplate', 'InsetFrameTemplate', 'SecureHandlerStateTemplate', 'PanelTabButtonTemplate',
-  'InputBoxTemplate', 'CooldownFrameTemplate'];
+  'InputBoxTemplate', 'CooldownFrameTemplate', 'InsecureActionButtonTemplate'];
 const BARE = process.argv.includes('--bare');
 const pre = (BARE ? 'BARE=true\nBAD_ATLAS=true\nBAD_TEMPLATES={' + bareTemplates.map(t => t + '=true').join(',') + '}\n' : '')
   + (process.argv.includes('--verbose') ? 'VERBOSE=true\n' : '');

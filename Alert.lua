@@ -16,7 +16,7 @@ ns.Alert = A
 local SIZE = 40
 local GAP = 6
 local CONTROLS = 24
-local holder, controls, playButton, cogButton
+local holder, controls, playButton, cogButton, conjureButton
 local icons = {}
 local wasLow = { water = false, food = false }
 A.combat = false
@@ -209,6 +209,14 @@ local function Build()
 	holder:SetClampedToScreen(true)
 	Place()
 	for _, kind in ipairs(ns.KIND_ORDER) do Icon({ key = kind, kind = kind }) end
+	-- Conjures by click, one cast each: the next row short of its target, or when every target is met,
+	-- whatever the alert shows as low.
+	conjureButton = ns.Click.Make("ConjurerAlertConjure", holder, SIZE, function()
+		for _, e in ipairs(Entries()) do
+			if e.canShow and e.low then return e.gem or e.entry end
+		end
+		return nil
+	end)
 
 	controls = CreateFrame("Frame", nil, holder)
 	controls:SetSize(CONTROLS, SIZE)
@@ -307,8 +315,15 @@ function A.Update(quiet)
 	end
 	local iconsWidth = #show * SIZE + (#show - 1) * GAP
 	controls:ClearAllPoints()
-	controls:SetPoint("LEFT", holder, "LEFT", iconsWidth + GAP, 0)
-	holder:SetWidth(iconsWidth + GAP + CONTROLS)
+	local x = iconsWidth + GAP
+	if conjureButton then
+		conjureButton:ClearAllPoints()
+		conjureButton:SetPoint("LEFT", holder, "LEFT", x, 0)
+		conjureButton:Show()
+		x = x + SIZE + GAP
+	end
+	controls:SetPoint("LEFT", holder, "LEFT", x, 0)
+	holder:SetWidth(x + CONTROLS)
 	PaintPlay()
 	holder:Show()
 	report["alert showing"] = table.concat(labels, " and ") .. (A.preview and " (moving)" or "") .. (A.sticky and " (conjuring)" or "")

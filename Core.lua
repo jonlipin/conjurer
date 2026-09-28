@@ -268,9 +268,9 @@ end
 -- Profiles
 --
 -- One set of targets per kind of group: solo, a party, raids of up to 10, 20 or 40, and
--- battlegrounds sized like Warsong Gulch, Arathi Basin and Alterac Valley. The profile in use
--- follows your group (a battleground by its own size, from the instance) unless you pick one by
--- hand; a hand pick holds until your group moves into another size.
+-- battlegrounds sized like Warsong Gulch, Arathi Basin and Alterac Valley. Ready conjures the one
+-- for your group now (a battleground by its own size, from the instance); the window's tabs only
+-- choose which one you see and set, unless "Conjure for your group's size" is off.
 -- ------------------------------------------------------------------
 
 ns.PROFILES = {
@@ -543,6 +543,7 @@ function ns.Refresh()
 		if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 		if ns.Alert and ns.Alert.Refresh then ns.Alert.Refresh() end
 		if ns.Minimap and ns.Minimap.Refresh then ns.Minimap.Refresh() end
+		if ns.Click and ns.Click.Refresh then ns.Click.Refresh() end
 	end)
 end
 

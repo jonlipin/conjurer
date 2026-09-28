@@ -16,6 +16,7 @@ Core.lua
 Conjure.lua
 Trade.lua
 Macro.lua
+Click.lua
 UI.lua
 Alert.lua
 Announce.lua
