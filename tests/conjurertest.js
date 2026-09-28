@@ -406,6 +406,7 @@ function EnterCombatLockdown()
   end
 end
 function InCombatLockdown() return COMBAT == true end
+function UnitCastingInfo(unit) if unit == "player" and CASTING then return "Conjure" end end
 
 -- Settings
 CVARS = { ActionButtonUseKeyHeldSpell = "0", ActionButtonUseKeyDown = "1" }
@@ -449,6 +450,15 @@ C_Container = {
         BAGS[CURSOR.from[1]][CURSOR.from[2]] = nil
         BAGS[bag][slot] = { itemID = CURSOR.id, stackCount = CURSOR.count }
       end
+      CURSOR = nil
+    elseif CURSOR.kind == "item" and CURSOR.from and not CURSOR.split and s and s.itemID == CURSOR.id
+      and not (CURSOR.from[1] == bag and CURSOR.from[2] == slot) then
+      local from = BAGS[CURSOR.from[1]][CURSOR.from[2]]
+      local move = math.min(20 - s.stackCount, from.stackCount)
+      s.stackCount = s.stackCount + move
+      from.stackCount = from.stackCount - move
+      from.isLocked = false
+      if from.stackCount <= 0 then BAGS[CURSOR.from[1]][CURSOR.from[2]] = nil end
       CURSOR = nil
     end
   end,
@@ -1243,6 +1253,79 @@ end
 BAG_SIZE = savedSizes
 ClearBags()
 ns.Profile().water[7] = 0
+
+-- ---- Tidying loose stacks ---------------------------------------------------
+if C.armed then C.Disarm() end
+local function StacksOf(item)
+  local list = {}
+  for bag = 0, 4 do for slot = 1, 16 do local st = BAGS[bag][slot] if st and st.itemID == item then list[#list + 1] = st.stackCount end end end
+  table.sort(list, function(a, b) return a > b end)
+  return table.concat(list, ",")
+end
+local function LooseStacks()
+  ClearBags()
+  BAGS[0][1] = { itemID = 8079, stackCount = 7 }
+  BAGS[0][2] = { itemID = 8079, stackCount = 20 }
+  BAGS[0][3] = { itemID = 8079, stackCount = 5 }
+  BAGS[0][4] = { itemID = 8079, stackCount = 14 }
+  BAGS[1][1] = { itemID = 22895, stackCount = 3 }
+  BAGS[1][2] = { itemID = 22895, stackCount = 4 }
+end
+local function Settle(times)
+  for i = 1, times or 6 do fire("BAG_UPDATE_DELAYED") RunTimers(2) end
+end
+LooseStacks()
+ns.db.tidy = true
+logMark = #ConjurerLog.entries
+Settle()
+check("loose conjured stacks are merged into whole ones", StacksOf(8079) == "20,20,6" and StacksOf(22895) == "7", StacksOf(8079) .. " / " .. StacksOf(22895))
+check("smallest onto biggest, one move at a time, each logged", LoggedSince("tidy: 5 Conjured Crystal Water onto 14")
+  and LoggedSince("tidy: 3 Conjured Cinnamon Roll onto 4"))
+check("nothing is left on the cursor", CURSOR == nil)
+-- Not while something else is going on.
+LooseStacks()
+ns.Profile().water[7] = 100
+Click(P.readyButton)
+Settle()
+check("not while Ready is lit", C.armed and StacksOf(8079) == "20,14,7,5")
+logMark = #ConjurerLog.entries
+C.Disarm()
+RunTimers(2)
+check("once Ready is off, the tidy starts by itself", LoggedSince("tidy: 5 Conjured Crystal Water onto 14"))
+Settle()
+check("and finishes as the bags settle", StacksOf(8079) == "20,20,6")
+ns.Profile().water[7] = 0
+LooseStacks()
+fire("TRADE_SHOW") RunTimers(0)
+Settle()
+check("not while a trade is open", StacksOf(8079) == "20,14,7,5")
+TradeCancel() RunTimers(0)
+Settle()
+check("but once it closes", StacksOf(8079) == "20,20,6")
+LooseStacks()
+CASTING = true
+Settle()
+CASTING = false
+check("not while casting", StacksOf(8079) == "20,14,7,5")
+LooseStacks()
+CURSOR = { kind = "spell", id = 1 }
+Settle()
+local stillHeld = CURSOR and CURSOR.kind == "spell" and CURSOR.id == 1
+CURSOR = nil
+check("not while something is on the cursor, which stays there", StacksOf(8079) == "20,14,7,5" and stillHeld)
+LooseStacks()
+EnterCombatLockdown()
+logMark = #ConjurerLog.entries
+Settle()
+COMBAT = false
+check("not in combat, not even an attempt", StacksOf(8079) == "20,14,7,5" and not LoggedSince("tidy:"))
+LooseStacks()
+fire("BAG_UPDATE_DELAYED")
+ns.db.tidy = false
+Settle()
+check("and never with Tidy switched off, even a move already on its way", StacksOf(8079) == "20,14,7,5")
+ns.db.tidy = true
+ClearBags()
 
 -- Combat: Ready goes off before the lockdown.
 ns.Profile().water[7] = C_Item.GetItemCount(8079) + 40

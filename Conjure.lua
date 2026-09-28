@@ -607,6 +607,8 @@ function C.Disarm(reason)
 	ns.Log("Ready off: " .. tostring(reason) .. (C.pendingCleanup and " (button emptied after combat)" or ""))
 	ns.SnapshotReport("Ready off")
 	ns.Refresh()
+	-- What Ready left in loose stacks can be tidied now.
+	ns.Bags.TidySoon()
 end
 
 function C.Toggle()

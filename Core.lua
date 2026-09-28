@@ -122,6 +122,7 @@ local DEFAULTS = {
 	alert = { enabled = true, water = 20, food = 10, sound = false, when = "out", lowerRanks = false },
 	announce = { shown = false, groupOnly = true },
 	drinkWhenOOM = true,
+	tidy = true,
 }
 
 local function Merge(into, from)

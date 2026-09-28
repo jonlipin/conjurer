@@ -80,3 +80,74 @@ function B.Room(item)
 	end
 	return room
 end
+
+-- ------------------------------------------------------------------
+-- Tidying
+--
+-- Loose stacks of conjured food and water are merged, the smallest onto the biggest that has room,
+-- one move at a time with a pause for the server between (the next move waits for the bags to
+-- settle), and only when nothing else is going on: out of combat, Ready off, no trade open,
+-- nothing on the cursor and nothing being cast. Whole stacks are then ready to hand over.
+-- ------------------------------------------------------------------
+
+local TIDY_DELAY = 1.5
+local tidyQueued = false
+local tidyPausedUntil = 0
+
+local function Casting()
+	if not UnitCastingInfo then return false end
+	local ok, name = pcall(UnitCastingInfo, "player")
+	return ok and ns.Clean(name) ~= nil
+end
+
+-- What stops a tidy now, or nil.
+function B.Busy()
+	if ns.InCombat() then return "in combat" end
+	if ns.Conjure and ns.Conjure.armed then return "Ready is lit" end
+	if ns.Trade and (ns.Trade.open or ns.Trade.job) then return "trading" end
+	if GetCursorInfo() then return "something on the cursor" end
+	if Casting() then return "casting" end
+	return nil
+end
+
+-- The next merge: an item and two of its stacks that aren't full, smallest and biggest.
+function B.NextMerge()
+	for _, list in ipairs({ ns.WATER, ns.FOOD }) do
+		for _, entry in ipairs(list) do
+			local partial = {}
+			for _, s in ipairs(B.Stacks(entry.item)) do
+				if s.count < ns.STACK then partial[#partial + 1] = s end
+			end
+			if #partial >= 2 then return entry, partial[#partial], partial[1] end
+		end
+	end
+	return nil
+end
+
+function B.TidyStep()
+	tidyQueued = false
+	if not (ns.db and ns.db.tidy) or GetTime() < tidyPausedUntil or B.Busy() then return end
+	local entry, from, to = B.NextMerge()
+	if not entry then return end
+	ns.Stage("tidying " .. entry.name)
+	pcall(C_Container.PickupContainerItem, from.bag, from.slot)
+	if GetCursorInfo() then pcall(C_Container.PickupContainerItem, to.bag, to.slot) end
+	local refused = GetCursorInfo() ~= nil
+	if refused then
+		ClearCursor()
+		-- Something about these bags won't take it: leave them alone for a while.
+		tidyPausedUntil = GetTime() + 60
+	end
+	ns.Stage("idle")
+	ns.Log("tidy: " .. from.count .. " " .. entry.name .. " onto " .. to.count .. (refused and " (refused, pausing)" or ""))
+end
+
+function B.TidySoon()
+	if tidyQueued or not (ns.db and ns.db.tidy) then return end
+	tidyQueued = true
+	ns.After(TIDY_DELAY, B.TidyStep)
+end
+
+ns.On("BAG_UPDATE_DELAYED", function() B.TidySoon() end)
+ns.On("PLAYER_REGEN_ENABLED", function() B.TidySoon() end)
+ns.On("TRADE_CLOSED", function() B.TidySoon() end)
