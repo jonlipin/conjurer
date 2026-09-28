@@ -224,7 +224,7 @@ function C.ClearSlot()
 	if fn then pcall(fn, where.slot) end
 	if GetCursorInfo() then ClearCursor() end
 	ns.Stage("idle")
-	C.placed = nil
+	C.placed, C.placedDrink = nil, nil
 	local emptied = not Ours(where.slot)
 	ns.Log("empty the borrowed button (slot " .. where.slot .. "): " .. (emptied and "ok" or "still holds a conjure spell"))
 	return emptied
@@ -455,7 +455,9 @@ end
 -- Drinking
 --
 -- Out of mana, the key (and the click button) drinks your best conjured water instead of
--- conjuring, then conjures again. Being out of mana is read two ways: from your mana and the
+-- conjuring, then conjures again. Once a drink is taken they do nothing until it's done: another
+-- press would drink another water (in game, pressing on kept the drinking going forever) or stand
+-- you up. Being out of mana is read two ways: from your mana and the
 -- spell's cost when the client lets an addon read them, and from the game's own "Not enough mana"
 -- error. This client may hand an addon your mana only as a secret value (UnitPower is guarded by
 -- SecretWhenUnitPowerRestricted), and the logs of 2026-09-28 showed no drinking at all. Drinking
@@ -541,18 +543,28 @@ local function NoteDrinks()
 	local t = C.thirst
 	if not t then return end
 	local now = ns.Count(t.entry.item)
-	if now < t.count then
+	if now < t.count and not t.untilTime then
 		local secs = C.DrinkSeconds(t.entry)
 		t.untilTime = GetTime() + secs
 		ns.Log("drinking " .. t.entry.name .. " for " .. secs .. " seconds")
+		C.Say("Drinking. Conjuring again in " .. secs .. " seconds.")
 		ns.After(secs + 0.5, function()
 			if C.thirst and not C.Thirsty() then
 				if C.armed then C.Update() end
 				ns.Refresh()
 			end
 		end)
+		if C.armed then C.Update() end
+		ns.Refresh()
 	end
 	t.count = now
+end
+
+-- Seconds left of the drink being taken, or nil when none is.
+function C.DrinkLeft()
+	local t = C.thirst
+	if not (t and t.untilTime) then return nil end
+	return math.max(0, math.ceil(t.untilTime - GetTime()))
 end
 C.NoteDrinks = NoteDrinks
 
@@ -622,6 +634,15 @@ local function Announce(text)
 	end
 end
 C.Say = Announce
+
+-- Empties the borrowed button, after the key up when the key is down between casts.
+local function ClearSoon()
+	if C.hold.held and not C.inFlight then
+		C.placeOnRelease = true
+		return false
+	end
+	return C.ClearSlot()
+end
 
 local placeTries = 0
 local function PlaceSoon(entry, drink)
@@ -696,7 +717,7 @@ function C.Arm()
 	C.armed = true
 	C.working, C.early, C.inFlight, C.placeOnRelease = row, nil, nil, nil
 	C.ResetRowWatch(row)
-	C.lowWaterSaid, C.manaUnreadSaid, C.saidBack = nil, nil, nil
+	C.lowWaterSaid, C.manaUnreadSaid, C.drinkPhase = nil, nil, nil
 	ns.Log("Ready is lit; hold to cast " .. (C.HoldReady() and "on" or "OFF (one cast per press)") .. "; " .. C.ManaText(row))
 	if not C.HoldReady() then
 		ns.Print("Press and Hold Casting is off, so each press conjures once. Turn it on in Options > Combat to hold instead.")
@@ -819,7 +840,6 @@ function C.CastStarted(spell, guid)
 			ns.Log("at the start of this cast, " .. C.ManaText(placed) .. ": not enough for another")
 			local drink = C.StartThirst("not enough for another " .. placed.name)
 			if drink and C.PlaceDrink(drink) then
-				C.saidBack = nil
 				Announce("Out of mana after this cast: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink) .. " until you're full.")
 				ns.Log("the button now holds " .. drink.name .. " to drink")
 			end
@@ -944,19 +964,22 @@ function C.Update()
 		drink = C.StartThirst("not enough for " .. row.name)
 	end
 	if drink then
-		if C.placedDrink ~= drink then
+		C.drinkPhase = true
+		if C.DrinkLeft() then
+			-- The drink is going: the key waits for it.
+			if C.placed or C.placedDrink then ClearSoon() end
+		elseif C.placedDrink ~= drink then
 			if not C.placedDrink then
 				Announce("Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink)
 					.. (C.Mana() and " until you're full." or " until the drink is done."))
 			end
-			C.saidBack = nil
 			PlaceSoon(drink, true)
 		end
 		return
 	end
-	if C.placedDrink and not C.saidBack then
-		C.saidBack = true
-		Announce((C.ManaFull() and "Mana's full. " or "") .. "Hold " .. C.KeyText() .. " to conjure " .. ns.ShortName(row) .. ".")
+	if C.drinkPhase then
+		C.drinkPhase = nil
+		Announce((C.ManaFull() and "Mana's full. " or "Drink done. ") .. "Hold " .. C.KeyText() .. " to conjure " .. ns.ShortName(row) .. ".")
 	end
 	if C.placed ~= row and not C.early then PlaceSoon(row) end
 end
@@ -976,7 +999,10 @@ function C.Status()
 	if C.armed then
 		row = C.working or row
 		local detail = row and (ns.ShortName(row) .. ": " .. ns.Count(row.item) .. " of " .. ns.Target(row) .. " (" .. ProfileLabel() .. ")") or "Finishing"
-		if C.placedDrink then
+		if C.DrinkLeft() and C.drinkPhase then
+			detail = "Drinking: " .. C.KeyText() .. " conjures again in " .. C.DrinkLeft() .. "s"
+				.. (C.Mana() and ", or once you're full" or "")
+		elseif C.placedDrink then
 			detail = "Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(C.placedDrink)
 				.. (C.Mana() and " until you're full" or " until the drink is done")
 		end

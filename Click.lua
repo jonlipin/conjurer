@@ -77,7 +77,7 @@ local function Drinking(row)
 	return drink
 end
 
-local function Paint(b, next, drink, full)
+local function Paint(b, next, drink, full, waiting)
 	local row, fallback = next, false
 	if not row and b.fallback then
 		row = b.fallback()
@@ -86,7 +86,16 @@ local function Paint(b, next, drink, full)
 	end
 	b.row, b.isFallback, b.full = row, fallback, (not row) and full or nil
 	b.drink = (row and drink) or nil
-	if b.drink then
+	b.waiting = (b.drink and waiting) or nil
+	if b.waiting then
+		-- A drink is going: a click does nothing until it's done.
+		b:SetAttribute("type", nil)
+		b:SetAttribute("spell", nil)
+		b:SetAttribute("item", nil)
+		b.icon:SetTexture(ns.ItemIcon(b.drink))
+		b.icon:SetDesaturated(true)
+		return
+	elseif b.drink then
 		b:SetAttribute("type", "item")
 		b:SetAttribute("item", "item:" .. b.drink.item)
 		b:SetAttribute("spell", nil)
@@ -112,6 +121,9 @@ local function Tooltip(self)
 	if ns.InCombat() then
 		GameTooltip:SetText("Conjure by click", 1, 1, 1)
 		GameTooltip:AddLine("Out of combat only.", 1, 0.5, 0.5, true)
+	elseif self.waiting then
+		GameTooltip:SetText("Drinking", 1, 1, 1)
+		GameTooltip:AddLine("A click conjures again in " .. (ns.Conjure.DrinkLeft() or 0) .. " seconds, when the drink is done.", 1, 0.82, 0, true)
 	elseif self.drink then
 		GameTooltip:SetText("Drink " .. ns.ShortName(self.drink), 1, 1, 1)
 		GameTooltip:AddLine("Out of mana for " .. ns.ShortName(row) .. ": a click drinks until you're full, then it conjures again.",
@@ -154,6 +166,8 @@ function K.Make(name, parent, size, fallback)
 	b:SetScript("PostClick", ns.Guard("click conjure", function(self)
 		if ns.InCombat() then
 			ns.Log("click in combat: nothing (out of combat only)")
+		elseif self.waiting then
+			ns.Log("click while drinking: nothing until the drink is done")
 		elseif self.drink then
 			ns.Log("click: drink " .. self.drink.name .. " (out of mana)")
 		elseif self.row then
@@ -176,7 +190,8 @@ function K.Refresh()
 	local next = K.NextRow()
 	local drink = Drinking(next)
 	local full = (not next) and FullRow() or nil
-	for _, b in ipairs(buttons) do Paint(b, next, drink, full) end
+	local waiting = drink and ns.Conjure.DrinkLeft() ~= nil
+	for _, b in ipairs(buttons) do Paint(b, next, drink, full, waiting) end
 end
 
 -- ------------------------------------------------------------------
