@@ -70,14 +70,29 @@ local function Build()
 	icon:SetTexture(Icon())
 	button.icon = icon
 
-	-- Lit while Ready is on, like the window's Ready button.
+	-- Lit while Ready is on, like the window's Ready button: a blue glow cut round to the button's
+	-- backing, pulsing slowly, so it reads as a state rather than a stuck highlight.
 	local lit = button:CreateTexture(nil, "OVERLAY", nil, 1)
-	lit:SetSize(24, 24)
-	lit:SetPoint("CENTER", icon, "CENTER")
-	lit:SetColorTexture(0.35, 0.75, 1, 0.35)
+	lit:SetSize(20, 20)
+	lit:SetPoint("TOPLEFT", 7, -5)
+	lit:SetColorTexture(0.35, 0.75, 1, 0.5)
 	lit:SetBlendMode("ADD")
+	local ok, mask = pcall(button.CreateMaskTexture, button)
+	if ok and mask then
+		mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		mask:SetAllPoints(lit)
+		lit:AddMaskTexture(mask)
+		button.litMask = mask
+	end
+	local pulse = lit:CreateAnimationGroup()
+	local fade = pulse:CreateAnimation("Alpha")
+	fade:SetFromAlpha(1)
+	fade:SetToAlpha(0.35)
+	fade:SetDuration(0.9)
+	pulse:SetLooping("BOUNCE")
 	lit:Hide()
 	button.lit = lit
+	button.pulse = pulse
 
 	local border = button:CreateTexture(nil, "OVERLAY")
 	border:SetSize(53, 53)
@@ -121,7 +136,10 @@ function M.Apply()
 end
 
 function M.Refresh()
-	if button and button.lit then button.lit:SetShown(ns.Conjure and ns.Conjure.armed or false) end
+	if not (button and button.lit) then return end
+	local armed = ns.Conjure and ns.Conjure.armed or false
+	button.lit:SetShown(armed)
+	if armed and not button.pulse:IsPlaying() then button.pulse:Play() elseif not armed then button.pulse:Stop() end
 end
 
 function M.Init()
