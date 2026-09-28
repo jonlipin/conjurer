@@ -123,6 +123,8 @@ local DEFAULTS = {
 	announce = { shown = false, groupOnly = true },
 	drinkWhenOOM = true,
 	tidy = true,
+	tradeConjure = true,
+	strangers = { water = 20, food = 20, autoFill = false },
 }
 
 local function Merge(into, from)

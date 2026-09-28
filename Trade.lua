@@ -113,11 +113,20 @@ function T.HandedMinutesLeft(guid)
 	return math.max(1, math.ceil((minutes * 60 - (time() - h.t)) / 60))
 end
 
+-- Someone's share: their class's, and for someone outside your group no more than the amounts set
+-- for strangers.
+function T.ShareFor(m)
+	local share = ns.Share(m.class or "WARRIOR")
+	if not m.stranger then return share end
+	local cap = ns.db.strangers
+	return { water = math.min(share.water or 0, cap.water or 0), food = math.min(share.food or 0, cap.food or 0) }
+end
+
 -- What a member is still owed: their class share minus what they were handed, one line per kind.
 -- With full set, the whole share again. The second value counts kinds with nothing you can make.
 function T.Owed(m, full)
 	local out, missing = {}, 0
-	local share = ns.Share(m.class or "WARRIOR")
+	local share = T.ShareFor(m)
 	local handed = (not full) and T.Handed(m.guid) or {}
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		local want = (share[kind] or 0) - (handed[kind] or 0)
@@ -134,7 +143,7 @@ function T.Owed(m, full)
 end
 
 function T.ShareText(m)
-	local share = ns.Share(m.class or "WARRIOR")
+	local share = T.ShareFor(m)
 	local parts = {}
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		local n = share[kind] or 0
@@ -164,7 +173,7 @@ T.COLORS = {
 
 -- A member's line: the status text, its colour, and the label for their button (nil for none).
 function T.Status(m)
-	local share = ns.Share(m.class or "WARRIOR")
+	local share = T.ShareFor(m)
 	if (share.water or 0) + (share.food or 0) == 0 then return "No share", "grey", nil end
 	local owed, missing = T.Owed(m)
 	local trading = T.open and T.partner and T.partner.guid == m.guid
@@ -436,33 +445,163 @@ function T.PartnerAsMember()
 	return {
 		unit = "NPC", guid = guid, name = ns.Clean(UnitName("NPC")) or "?",
 		level = (type(level) == "number" and level > 0) and level or nil,
-		class = ns.Clean(class), connected = true,
+		class = ns.Clean(class), connected = true, stranger = true,
 	}
+end
+
+-- Starts moving items into the trade window, one step at a time.
+local function StartJob(m, steps, what)
+	T.job = { guid = m and m.guid, name = m and m.name or "?", steps = steps, i = 1, done = 0, failed = 0, waits = 0 }
+	T.lastFill = (m and m.name or "?") .. ": " .. what
+	ns.Log("trade: " .. T.lastFill)
+	T.Step()
+end
+
+-- The moves that put this many of an item in the window: a stack of exactly that many whole,
+-- else whole stacks biggest first and the rest split off.
+local function Plan(entry, need)
+	local steps = {}
+	local stacks = Stacks(entry.item)
+	for _, s in ipairs(stacks) do
+		if s.count == need then
+			return { { op = "move", bag = s.bag, slot = s.slot, n = need, entry = entry } }
+		end
+	end
+	for _, s in ipairs(stacks) do
+		if need <= 0 then break end
+		if s.count <= need then
+			steps[#steps + 1] = { op = "move", bag = s.bag, slot = s.slot, n = s.count, entry = entry }
+			need = need - s.count
+		else
+			steps[#steps + 1] = { op = "split", bag = s.bag, slot = s.slot, n = need, entry = entry }
+			need = 0
+		end
+	end
+	return steps
+end
+
+-- One stack of your best food or water the other side can use, your fullest first, into the next
+-- free slot: for someone who just asks for a stack. Shares don't come into it.
+function T.AddStack(kind)
+	if not T.open or ns.InCombat() then return end
+	if T.job then
+		ns.Print("Wait a moment: Conjurer is still putting things in the trade window.")
+		return
+	end
+	local m = T.PartnerAsMember()
+	local _, free = T.ReadOffer()
+	if #free == 0 then
+		ns.Print("The trade window is full.")
+		return
+	end
+	local level = m and m.level
+	local list = ns.KINDS[kind]
+	for r = #list, 1, -1 do
+		local entry = list[r]
+		if not ns.db.bestRank or not level or entry.level <= level then
+			local s = Stacks(entry.item)[1]
+			if s then
+				StartJob(m, { { op = "move", bag = s.bag, slot = s.slot, n = s.count, entry = entry, trade = free[1] } },
+					"a stack of " .. s.count .. " " .. entry.name)
+				return
+			end
+		end
+	end
+	ns.Print("You have no conjured " .. kind .. (level and (" a level " .. level .. " can use") or "") .. ".")
+end
+
+-- Takes everything of yours back out of the trade window.
+function T.ClearTrade()
+	if not T.open or ns.InCombat() then return end
+	T.job = nil
+	local cleared = 0
+	for i = 1, MAX_TRADE_SLOTS do
+		if TradeSlot(i) and not GetCursorInfo() then
+			pcall(ClickTradeButton, i)
+			if GetCursorInfo() then
+				ClearCursor()
+				cleared = cleared + 1
+			end
+		end
+	end
+	ns.Log("trade: cleared " .. cleared .. " slot" .. (cleared == 1 and "" or "s"))
+end
+
+-- Puts this many of an item in the window: what you just conjured with the trade open.
+function T.Give(entry, n)
+	if not T.open or n <= 0 or ns.InCombat() then return end
+	if T.job then
+		ns.After(0.5, function() T.Give(entry, n) end)
+		return
+	end
+	local _, free = T.ReadOffer()
+	local steps = Plan(entry, n)
+	local dropped = 0
+	while #steps > #free do
+		table.remove(steps)
+		dropped = dropped + 1
+	end
+	if #steps == 0 then
+		ns.Print("The trade window is full, so the " .. ns.ShortName(entry) .. " you conjured stays in your bags.")
+		return
+	end
+	for i, step in ipairs(steps) do step.trade = free[i] end
+	StartJob(T.PartnerAsMember(), steps, n .. " " .. entry.name .. " just conjured" .. (dropped > 0 and ", some left out (trade window full)" or ""))
 end
 
 -- A button under the game's trade window that puts their share in by hand: for when the automatic
 -- fill is off, didn't happen, or the other side isn't in your group. A share already handed over
 -- is given again whole, since the button is an explicit ask.
 local tradeButton
+
+-- A button in the row under the trade window.
+local function TradeRowButton(name, text, width)
+	local ok, b = pcall(CreateFrame, "Button", name, TradeFrame, "UIPanelButtonTemplate")
+	if not (ok and b) then
+		b = CreateFrame("Button", name, TradeFrame)
+		local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		fs:SetAllPoints()
+		b:SetFontString(fs)
+		local bg = b:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0.3, 0.05, 0.05, 0.9)
+	end
+	b:SetSize(width, 22)
+	b:SetText(text)
+	return b
+end
+
+local function RowTip(b, title, body)
+	b:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip:SetText(title, 1, 1, 1)
+		GameTooltip:AddLine(body, nil, nil, nil, true)
+		GameTooltip:Show()
+	end)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
 function T.ShowTradeButton()
 	if not TradeFrame then
 		report["trade button"] = "no TradeFrame on this client"
 		return
 	end
 	if not tradeButton then
-		local ok, b = pcall(CreateFrame, "Button", "ConjurerTradeButton", TradeFrame, "UIPanelButtonTemplate")
-		if not (ok and b) then
-			b = CreateFrame("Button", "ConjurerTradeButton", TradeFrame)
-			local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-			fs:SetAllPoints()
-			b:SetFontString(fs)
-			local bg = b:CreateTexture(nil, "BACKGROUND")
-			bg:SetAllPoints()
-			bg:SetColorTexture(0.3, 0.05, 0.05, 0.9)
-		end
-		b:SetSize(150, 22)
+		local b = TradeRowButton("ConjurerTradeButton", "Conjurer: give share", 140)
 		b:SetPoint("TOPLEFT", TradeFrame, "BOTTOMLEFT", 4, -2)
-		b:SetText("Conjurer: give share")
+		-- Beside it: a stack of water, a stack of food, and taking it all back out.
+		local water = TradeRowButton("ConjurerTradeWater", "+ Water", 64)
+		water:SetPoint("LEFT", b, "RIGHT", 4, 0)
+		water:SetScript("OnClick", ns.Guard("trade add water", function() T.AddStack("water") end))
+		RowTip(water, "Add a stack of water", "Your best conjured water they can use, your fullest stack first. Click again for another.")
+		local food = TradeRowButton("ConjurerTradeFood", "+ Food", 60)
+		food:SetPoint("LEFT", water, "RIGHT", 4, 0)
+		food:SetScript("OnClick", ns.Guard("trade add food", function() T.AddStack("food") end))
+		RowTip(food, "Add a stack of food", "Your best conjured food they can use, your fullest stack first. Click again for another.")
+		local clear = TradeRowButton("ConjurerTradeClear", "Clear", 56)
+		clear:SetPoint("LEFT", food, "RIGHT", 4, 0)
+		clear:SetScript("OnClick", ns.Guard("trade clear", T.ClearTrade))
+		RowTip(clear, "Clear the trade window", "Takes everything you put in back out, into your bags.")
 		b:SetScript("OnClick", ns.Guard("trade give share", function()
 			local m = T.PartnerAsMember()
 			if not m then
@@ -552,10 +691,14 @@ ns.On("TRADE_SHOW", function()
 	T.partner = T.MemberByGuid(guid)
 	local asked = guid and T.pending[guid]
 	if guid then T.pending[guid] = nil end
+	-- Someone outside the group gets filled too when that's ticked, up to the amounts for strangers.
+	if not T.partner and guid and ns.db.strangers.autoFill then T.partner = T.PartnerAsMember() end
+	T.incoming, T.incomingSeen, T.toGive = {}, {}, {}
 	local m = T.partner
-	local fill = m and (asked or (ns.db.autoFill and #(T.Owed(m)) > 0))
+	local fill = m and (asked or ((m.stranger or ns.db.autoFill) and #(T.Owed(m)) > 0))
 	ns.Log("trade opened with " .. (m and (m.name .. " (" .. tostring(m.class) .. " " .. tostring(m.level) .. ")")
-		or ("someone outside the group " .. tostring(guid))) .. "; " .. (fill and "filling" or "not filling")
+		or ("someone outside the group " .. tostring(guid))) .. (m and m.stranger and " (outside the group)" or "")
+		.. "; " .. (fill and "filling" or "not filling")
 		.. (asked and (" (asked, " .. asked .. ")") or ""))
 	if fill then
 		ns.After(0.3, function()
@@ -625,6 +768,61 @@ ns.On("TRADE_CLOSED", function()
 		end)
 	end
 	ns.Refresh()
+end)
+
+-- ------------------------------------------------------------------
+-- Conjuring with the trade open
+--
+-- What you conjure while a trade is open goes into the window once it reaches your bags: casting
+-- then says "this is for them". What arrives within a moment goes in together, so a cast whose
+-- items come in two parts still fills one slot.
+-- ------------------------------------------------------------------
+
+T.incoming, T.incomingSeen, T.toGive = {}, {}, {}
+local GIVE_AFTER = 1
+local giveQueued = false
+
+local function GiveArrived()
+	giveQueued = false
+	for item, n in pairs(T.toGive) do
+		T.toGive[item] = nil
+		if n > 0 and ns.BY_ITEM[item] then T.Give(ns.BY_ITEM[item], n) end
+	end
+end
+
+local tradeCasts = CreateFrame("Frame")
+tradeCasts:SetScript("OnEvent", ns.Guard("trade cast watch", function(_, _, unit, _, spell)
+	if ns.Clean(unit) ~= "player" or not T.open or not ns.db.tradeConjure then return end
+	spell = ns.Clean(spell)
+	local entry = spell and ns.BY_SPELL[spell]
+	if not entry or entry.kind == "gem" then return end
+	local item = entry.item
+	if T.incomingSeen[item] == nil then T.incomingSeen[item] = ns.Count(item) end
+	T.incoming[item] = (T.incoming[item] or 0) + (ns.Conjure.Yield(entry) or 1)
+	ns.Log("conjured with the trade open: " .. entry.name .. " goes in when it arrives")
+end))
+if tradeCasts.RegisterUnitEvent then
+	pcall(tradeCasts.RegisterUnitEvent, tradeCasts, "UNIT_SPELLCAST_SUCCEEDED", "player")
+else
+	pcall(tradeCasts.RegisterEvent, tradeCasts, "UNIT_SPELLCAST_SUCCEEDED")
+end
+
+ns.On("BAG_UPDATE_DELAYED", function()
+	if not T.open then return end
+	for item, n in pairs(T.incoming) do
+		local now = ns.Count(item)
+		local before = T.incomingSeen[item] or now
+		if n > 0 and now > before then
+			local arrived = math.min(n, now - before)
+			T.incoming[item] = n - arrived
+			T.toGive[item] = (T.toGive[item] or 0) + arrived
+			if not giveQueued then
+				giveQueued = true
+				ns.After(GIVE_AFTER, GiveArrived)
+			end
+		end
+		T.incomingSeen[item] = now
+	end
 end)
 
 ns.On("GROUP_ROSTER_UPDATE", function() ns.Refresh() end)

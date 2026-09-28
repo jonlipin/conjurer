@@ -493,6 +493,13 @@ function ClearBags() BAGS = { [0] = {}, {}, {}, {}, {} } end
 TRADE = {}
 REFUSE_SPLIT_TO_TRADE = false
 function ClickTradeButton(i)
+  -- With nothing on the cursor, a click picks up what's in the slot; clearing the cursor puts it back.
+  if not CURSOR and TRADE[i] then
+    local t = TRADE[i]
+    CURSOR = { kind = "item", id = t.itemID, count = t.count, from = t.from }
+    TRADE[i] = nil
+    return
+  end
   if not CURSOR or CURSOR.kind ~= "item" or TRADE[i] then return end
   if CURSOR.split and REFUSE_SPLIT_TO_TRADE then return end
   TRADE[i] = { itemID = CURSOR.id, count = CURSOR.count, from = CURSOR.from, split = CURSOR.split }
@@ -1654,6 +1661,95 @@ fire("TRADE_SHOW")
 RunTimers(5)
 check("Again fills her whole share again", TRADE[1] and TRADE[2] and TRADE[3] and TRADE[3].itemID == 22895)
 TradeCancel()
+
+-- The trade window's own row: a stack at a time, and clearing it.
+TRADE_PARTNER = "Player-70-STRANGER"
+ClearBags()
+AddItems(8079, 20)
+AddItems(8079, 13)
+AddItems(22895, 20)
+AddItems(3772, 20)
+fire("TRADE_SHOW") RunTimers(5)
+check("the trade window has + Water, + Food and Clear beside Give share", ConjurerTradeWater and ConjurerTradeFood and ConjurerTradeClear
+  and ConjurerTradeWater.points[1][2] == ConjurerTradeButton and ConjurerTradeFood.points[1][2] == ConjurerTradeWater
+  and ConjurerTradeClear.points[1][2] == ConjurerTradeFood)
+Click(ConjurerTradeWater) RunTimers(3)
+check("+ Water puts in your fullest stack of the best water they can use", TRADE[1] and TRADE[1].itemID == 8079 and TRADE[1].count == 20 and not TRADE[2])
+Click(ConjurerTradeWater) RunTimers(3)
+check("and again, the next stack", TRADE[2] and TRADE[2].itemID == 8079 and TRADE[2].count == 13)
+Click(ConjurerTradeFood) RunTimers(3)
+check("+ Food, a stack of food", TRADE[3] and TRADE[3].itemID == 22895 and TRADE[3].count == 20)
+Click(ConjurerTradeClear) RunTimers(1)
+local anyLocked = false
+for bag = 0, 4 do for slot, st in pairs(BAGS[bag]) do if st.isLocked then anyLocked = true end end end
+check("Clear takes it all back out, nothing left on the cursor or locked", next(TRADE) == nil and CURSOR == nil and not anyLocked
+  and C_Item.GetItemCount(8079) == 33)
+TradeCancel() RunTimers(1)
+STRANGER.level = 30
+fire("TRADE_SHOW") RunTimers(1)
+Click(ConjurerTradeWater) RunTimers(3)
+check("someone of level 30 gets the best water they can drink", TRADE[1] and TRADE[1].itemID == 3772)
+TradeCancel() RunTimers(1)
+STRANGER.level = 60
+
+-- Strangers: their class's share, but no more than the amounts for strangers.
+STRANGER.class = "PRIEST"
+fire("TRADE_SHOW") RunTimers(1)
+check("a stranger gets their class's share, no more than the amounts for strangers", T.ShareText(T.PartnerAsMember()) == "20 Crystal Water, 20 Cinnamon Roll",
+  T.ShareText(T.PartnerAsMember()))
+P.sections.shares.body.strangers.water.Slider:SetValue(10) RunTimers(0)
+check("the strangers row sets those amounts", ns.db.strangers.water == 10 and T.ShareText(T.PartnerAsMember()) == "10 Crystal Water, 20 Cinnamon Roll")
+check("a group member's share isn't capped", T.ShareText(members[1]) == "40 Crystal Water, 20 Cinnamon Roll", T.ShareText(members[1]))
+TradeCancel() RunTimers(1)
+Click(P.sections.shares.body.checks["And for strangers too"])
+ns.db.handed["Player-70-STRANGER"] = nil
+ns.db.autoFill = false
+fire("TRADE_SHOW") RunTimers(5)
+ns.db.autoFill = true
+check("with And for strangers too ticked, a stranger's trade fills by itself", ns.db.strangers.autoFill and TRADE[1] and TRADE[1].itemID == 8079
+  and TRADE[1].count == 10 and TRADE[2] and TRADE[2].itemID == 22895 and TRADE[2].count == 20)
+fire("TRADE_ACCEPT_UPDATE", 1, 0)
+TradeComplete()
+RunTimers(2)
+check("and is counted", ns.db.handed["Player-70-STRANGER"] and ns.db.handed["Player-70-STRANGER"].water == 10)
+Click(P.sections.shares.body.checks["And for strangers too"])
+ns.db.strangers.water = 20
+ns.db.handed["Player-70-STRANGER"] = nil
+STRANGER.class = "WARRIOR"
+
+-- Conjuring with the trade open: it goes in as it arrives.
+local function ConjureDuringTrade()
+  CAST_N = CAST_N + 1
+  fire("UNIT_SPELLCAST_START", "player", "Cast-" .. CAST_N, 10140) RunTimers(0)
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-" .. CAST_N, 10140) RunTimers(0)
+  AddItems(8079, 5) fire("BAG_UPDATE_DELAYED") RunTimers(0.2)
+  AddItems(8079, 5) fire("BAG_UPDATE_DELAYED") RunTimers(3)
+end
+ClearBags()
+AddItems(8079, 15)
+fire("TRADE_SHOW") RunTimers(1)
+ConjureDuringTrade()
+check("what you conjure with a trade open goes in, one slot even when it arrives in parts", TRADE[1] and TRADE[1].itemID == 8079
+  and TRADE[1].count == 10 and not TRADE[2], TRADE[1] and TRADE[1].count)
+check("the rest stays in your bags", C_Item.GetItemCount(8079) == 25 and CURSOR == nil)
+TradeCancel() RunTimers(1)
+ns.db.tradeConjure = false
+fire("TRADE_SHOW") RunTimers(1)
+ConjureDuringTrade()
+check("with that switched off, it stays in your bags", next(TRADE) == nil)
+TradeCancel() RunTimers(1)
+ns.db.tradeConjure = true
+-- A stack of exactly what was conjured goes in whole, with no split.
+ClearBags()
+AddItems(8079, 20)
+fire("TRADE_SHOW") RunTimers(1)
+logMark = #ConjurerLog.entries
+ConjureDuringTrade()
+check("a new stack of exactly what was conjured goes in whole", TRADE[1] and TRADE[1].count == 10 and not LoggedSince("split 10"))
+TradeCancel() RunTimers(1)
+ns.db.tradeConjure = true
+ConjureDuringTrade()
+check("and with no trade open nothing happens", next(TRADE) == nil)
 
 -- Reset and leaving the group.
 Click(P.sections.group.action)

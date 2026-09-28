@@ -924,20 +924,37 @@ local function BuildShares(body)
 		y = y + ROW_H
 	end
 
+	-- Someone outside your group gets their class's share, but no more than this.
+	local strangers = ShareRow(body, y, "Strangers, at most", function(tex)
+		tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+	end, function(kind) return ns.db.strangers[kind] or 0 end, function(kind, v) ns.db.strangers[kind] = v end, 100)
+	strangers.name:SetTextColor(0.8, 0.8, 0.8)
+	Tip(strangers, "Strangers", "Anyone you trade who isn't in your group gets their class's share, but never more than this.")
+	body.strangers = strangers
+	y = y + ROW_H
+
 	y = y + 6
 	local checks = {
 		{ "Fill the trade window when a group member opens trade with you",
 			function() return ns.db.autoFill end, function(v) ns.db.autoFill = v end,
 			"Their share goes in by itself. You still press the game's Trade button to finish." },
+		{ "And for strangers too",
+			function() return ns.db.strangers.autoFill end, function(v) ns.db.strangers.autoFill = v end,
+			"Anyone outside your group who opens a trade gets their share up to the amounts for strangers. Off: use the Give share button under the trade window." },
+		{ "Put what you conjure with a trade open into the trade",
+			function() return ns.db.tradeConjure end, function(v) ns.db.tradeConjure = v end,
+			"Conjure while the window is open and it goes in as it arrives, however small the stack." },
 		{ "Give the highest rank each person can use",
 			function() return ns.db.bestRank end, function(v) ns.db.bestRank = v end,
 			"Conjured food and water need a level. Off: everyone gets your best rank." },
 		{ "Include the whole raid, not just your group of five",
 			function() return ns.db.includeRaid end, function(v) ns.db.includeRaid = v end, nil },
 	}
+	body.checks = {}
 	for _, c in ipairs(checks) do
 		local cb = NewCheck(body, c[1], c[2], c[3], c[4])
 		cb:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+		body.checks[c[1]] = cb
 		y = y + 26
 	end
 	body:SetHeight(y + 4)
