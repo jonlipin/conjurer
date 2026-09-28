@@ -11,7 +11,7 @@ local report = ns.report
 local UI = {}
 ns.UI = UI
 
-local WIDTH, HEIGHT = 624, 640
+local WIDTH, HEIGHT = 648, 640 -- the eight profile tabs, side by side at the art's 72 minimum, fit the list
 local ROW_H = 28
 local SLIDER_W = 178
 
@@ -29,6 +29,7 @@ local ticker
 local SECTIONS = {
 	{ key = "water", title = "Water" },
 	{ key = "food", title = "Food" },
+	{ key = "gems", title = "Mana gems" },
 	{ key = "shares", title = "Shares by class" },
 	{ key = "group", title = "Group" },
 	{ key = "macro", title = "Eat and drink macro" },
@@ -641,7 +642,7 @@ local function RankSummary(kind)
 	local ranks, have, want = 0, 0, 0
 	for _, entry in ipairs(ns.KINDS[kind]) do
 		local t = ns.Target(entry)
-		if t > 0 and ns.Known(entry.spell) then
+		if t > 0 and ns.Known(entry.spell) and ns.Shown(entry) then
 			ranks = ranks + 1
 			have = have + math.min(ns.Count(entry.item), t)
 			want = want + t
@@ -654,6 +655,17 @@ end
 local SUMMARY = {
 	water = function() return RankSummary("water") end,
 	food = function() return RankSummary("food") end,
+	gems = function()
+		if not ns.db.gems.keep then return "off" end
+		local kept, missing = 0, 0
+		for _, gem in ipairs(ns.GEMS) do
+			if ns.Known(gem.spell) and ns.KeepsGem(gem) then
+				kept = kept + 1
+				if ns.Count(gem.item) == 0 then missing = missing + 1 end
+			end
+		end
+		return "keeping " .. kept .. (missing > 0 and (", " .. missing .. " missing") or ", all there")
+	end,
 	shares = function()
 		local n, total = 0, 0
 		for _, file in ipairs(ns.Classes()) do
@@ -721,13 +733,14 @@ local function BuildRanks(body, kind)
 	body:SetHeight(ROW_H)
 end
 
--- Shows the ranks this character has learned, best first, closing up over the others.
+-- Shows the ranks this character has learned (just the best one unless "Show all ranks" is
+-- ticked), best first, closing up over the others.
 local function RefreshRanks(kind)
 	local body = sections[kind].body
 	local y, shown = 2, 0
 	for _, row in ipairs(rankRows[kind]) do
 		local entry = row.entry
-		if ns.Known(entry.spell) then
+		if ns.Known(entry.spell) and ns.Shown(entry) then
 			row:ClearAllPoints()
 			row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
 			row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
@@ -754,6 +767,94 @@ local function RefreshRanks(kind)
 	body.empty:SetShown(shown == 0)
 	if shown == 0 then y = y + 26 end
 	body:SetHeight(y + 2)
+end
+
+local gemRows = {}
+
+local function BuildGems(body)
+	local y = 4
+	local keep = NewCheck(body, "Keep your mana gems",
+		function() return ns.db.gems.keep end,
+		function(v)
+			ns.db.gems.keep = v
+			if ns.Conjure.armed then ns.Conjure.Update() end
+			ns.Alert.Update()
+		end,
+		"Ready conjures any ticked gem you're missing, one of each as the game allows, and the low alert shows it until you have it again.")
+	keep:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+	body.keepCheck = keep
+	y = y + 28
+	body.rowsTop = y
+	for r = #ns.GEMS, 1, -1 do
+		local gem = ns.GEMS[r]
+		local row = CreateFrame("Frame", nil, body)
+		row:SetHeight(ROW_H)
+		row:Hide()
+		row.gem = gem
+		row.icon = row:CreateTexture(nil, "ARTWORK")
+		row.icon:SetSize(22, 22)
+		row.icon:SetPoint("LEFT", 30, 0)
+		row.name = Text(row, "GameFontHighlight")
+		row.name:SetPoint("LEFT", 58, 0)
+		row.name:SetWidth(146)
+		row.level = Text(row, "GameFontDisableSmall")
+		row.level:SetPoint("LEFT", 208, 0)
+		row.level:SetWidth(56)
+		row.have = Text(row, "GameFontHighlightSmall")
+		row.have:SetPoint("LEFT", 266, 0)
+		row.have:SetWidth(62)
+		row.check = NewCheck(row, "Keep", function() return ns.db.gems[gem.spell] ~= false end,
+			function(v)
+				ns.db.gems[gem.spell] = v
+				if ns.Conjure.armed then ns.Conjure.Update() end
+				ns.Alert.Update()
+			end, nil)
+		row.check:SetPoint("LEFT", row, "LEFT", 330, 0)
+		row:EnableMouse(true)
+		row:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			local ok = GameTooltip.SetItemByID and pcall(GameTooltip.SetItemByID, GameTooltip, gem.item)
+			if not ok then GameTooltip:SetText(gem.name, 1, 1, 1) end
+			GameTooltip:Show()
+		end)
+		row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		gemRows[#gemRows + 1] = row
+	end
+	body.empty = Text(body, "GameFontDisable")
+	body.empty:SetText("You haven't learned Conjure Mana Agate yet; mages learn it at level 28.")
+	body.empty:Hide()
+	body:SetHeight(y)
+end
+
+local function RefreshGems(body)
+	local y, shown = body.rowsTop, 0
+	local keeping = ns.db.gems.keep
+	for _, row in ipairs(gemRows) do
+		local gem = row.gem
+		if ns.Known(gem.spell) then
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+			row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+			row:Show()
+			row.icon:SetTexture(ns.ItemIcon(gem))
+			row.name:SetText(ns.ItemName(gem))
+			row.level:SetText("Level " .. gem.level)
+			local have = ns.Count(gem.item) > 0
+			row.have:SetText(have and "Have it" or "Missing")
+			if have then row.have:SetTextColor(0.4, 0.85, 0.4) elseif keeping and ns.KeepsGem(gem) then row.have:SetTextColor(1, 0.6, 0.2) else row.have:SetTextColor(0.8, 0.8, 0.8) end
+			row.check:SetAlpha(keeping and 1 or 0.45)
+			row.check.label:SetAlpha(keeping and 1 or 0.45)
+			y = y + ROW_H
+			shown = shown + 1
+		else
+			row:Hide()
+		end
+	end
+	body.empty:ClearAllPoints()
+	body.empty:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y - 4)
+	body.empty:SetShown(shown == 0)
+	if shown == 0 then y = y + 24 end
+	body:SetHeight(y + 4)
 end
 
 local function ShareRow(body, y, label, iconSet, get, set, maxV)
@@ -851,9 +952,28 @@ local function MemberRow(body, i)
 	return row
 end
 
+-- The top of the Group section: how long a hand-out counts before that member is owed again.
+local GROUP_TOP = 32
+
+local function BuildGroupTop(body)
+	local label = Text(body, "GameFontHighlight")
+	label:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -9)
+	label:SetText("Forget handed out after")
+	local slider = NewSlider(body, 178, 0, 120, 5, function(v)
+		ns.db.handedMinutes = v
+		ns.Refresh()
+	end)
+	slider:SetPoint("TOPLEFT", body, "TOPLEFT", 186, -6)
+	local hint = Text(body, "GameFontDisableSmall")
+	hint:SetPoint("TOPLEFT", body, "TOPLEFT", 400, -10)
+	hint:SetText("minutes (0: until you reset)")
+	syncers[#syncers + 1] = function() slider:Set(tonumber(ns.db.handedMinutes) or 0) end
+	body.minutesSlider = slider
+end
+
 local function RefreshGroup(body)
 	local members = ns.Trade.Members()
-	local y = 2
+	local y = GROUP_TOP
 	for i, m in ipairs(members) do
 		local row = MemberRow(body, i)
 		row:ClearAllPoints()
@@ -1163,12 +1283,13 @@ end
 
 local tabs = {}
 local tabStyle, tabStrip, targetsBox
-local TAB_W, TAB_OVERLAP, TAB_H = 72, 16, 32
+local TAB_MIN, TAB_H, TAB_X, TAB_GAP = 72, 32, 8, 3
 local BOX_PAD = 6
 
 -- Water and Food sit in their own inset, the only part a profile changes, and the profile tabs hang
--- from its bottom border the way Blizzard's windows hang theirs: the first 11 in and 2 up, each
--- next one overlapping the last by 16.
+-- from its bottom border, 2 up into it like Blizzard's. Blizzard overlaps its tabs by 16, but the
+-- tab art's visible edge sits right at the tab's frame (the side pieces carry their own margin), so
+-- here they stand 3 apart, spread across the whole width.
 local function BuildTargetsBox()
 	local ok, box = pcall(CreateFrame, "Frame", nil, content, "InsetFrameTemplate")
 	if ok and box and box.NineSlice then
@@ -1198,13 +1319,17 @@ local function BuildTabs()
 	tabStrip = CreateFrame("Frame", nil, content)
 	tabStrip:SetHeight(TAB_H)
 	tabStrip:SetWidth(content:GetWidth() or 1)
+	-- Evenly spread across the list, never under the art's own minimum.
+	local count = #ns.PROFILES
+	local span = (content:GetWidth() or 0) - TAB_X - 3
+	local width = math.max(TAB_MIN, math.floor((span - (count - 1) * TAB_GAP) / count))
 	for i, def in ipairs(ns.PROFILES) do
 		local ok, tab = pcall(CreateFrame, "Button", "ConjurerFrameTab" .. i, tabStrip, "PanelTabButtonTemplate")
 		if not (ok and tab and tab.Text and tab.Left) then
 			if ok and tab then tab:Hide() end
 			tabStyle = "plain"
 			tab = CreateFrame("Button", "ConjurerFrameTabPlain" .. i, tabStrip)
-			tab:SetSize(64, 24)
+			tab:SetSize(math.floor((span - (count - 1) * TAB_GAP) / count), 24)
 			tab.bg = tab:CreateTexture(nil, "BACKGROUND")
 			tab.bg:SetAllPoints()
 			tab.bg:SetColorTexture(0.12, 0.1, 0.07, 0.95)
@@ -1220,11 +1345,11 @@ local function BuildTabs()
 		tab:SetText(def.label)
 		tab:ClearAllPoints()
 		if i == 1 then
-			tab:SetPoint("TOPLEFT", targetsBox, "BOTTOMLEFT", 11, 2)
+			tab:SetPoint("TOPLEFT", targetsBox, "BOTTOMLEFT", TAB_X, 2)
 		elseif tabStyle == "PanelTabButtonTemplate" then
-			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", -TAB_OVERLAP, 0)
+			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", TAB_GAP, 0)
 		else
-			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", 3, 0)
+			tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", TAB_GAP, 0)
 		end
 		tab:SetScript("OnClick", Guard("profile tab", function()
 			Sound("IG_CHARACTER_INFO_TAB", 841)
@@ -1248,9 +1373,10 @@ local function BuildTabs()
 	if tabStyle == "PanelTabButtonTemplate" then
 		tabStrip.numTabs = #tabs
 		for _, tab in ipairs(tabs) do
-			if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0, nil, TAB_W) end
+			if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0, width) end
 		end
 	end
+	tabStrip.tabWidth = width
 	report["profile tabs"] = tabStyle
 end
 
@@ -1258,6 +1384,9 @@ local function RefreshTabs()
 	local index = ns.PROFILE_BY_KEY[ns.ProfileKey()].index
 	if tabStyle == "PanelTabButtonTemplate" and PanelTemplates_SetTab then
 		pcall(PanelTemplates_SetTab, tabStrip, index)
+		-- The selected tab's taller art is lifted above both its neighbours.
+		local base = (tabStrip:GetFrameLevel() or 0) + 4
+		for i, tab in ipairs(tabs) do tab:SetFrameLevel(base + (i == index and 2 or 0)) end
 	else
 		for i, tab in ipairs(tabs) do
 			tab.selected = i == index
@@ -1319,9 +1448,11 @@ local function Build()
 	end
 	BuildRanks(sections.water.body, "water")
 	BuildRanks(sections.food.body, "food")
+	BuildGems(sections.gems.body)
 	BuildShares(sections.shares.body)
+	BuildGroupTop(sections.group.body)
 	groupEmpty = Text(sections.group.body, "GameFontDisable")
-	groupEmpty:SetPoint("TOPLEFT", sections.group.body, "TOPLEFT", 14, -8)
+	groupEmpty:SetPoint("TOPLEFT", sections.group.body, "TOPLEFT", 14, -GROUP_TOP - 6)
 	groupEmpty:SetText("You're not in a group. Shares go to your party or raid when you are.")
 	BuildMacro(sections.macro.body)
 	BuildAlert(sections.alert.body)
@@ -1335,10 +1466,20 @@ local function Build()
 	Tip(fill, "Fill targets from group",
 		"Sets every target to what your party or raid is still owed, at the rank each person can use, plus what you keep for yourself.")
 	sections.water.action = fill
+	local allRanks = NewCheck(sections.water.header, "Show all ranks",
+		function() return ns.db.showAllRanks end,
+		function(v)
+			ns.db.showAllRanks = v
+			if ns.Conjure.armed then ns.Conjure.Update() end
+		end,
+		"Off: just your best rank of water and food. On: every rank you know, for players too low for your best. Ready conjures only the ranks listed.")
+	allRanks:SetPoint("RIGHT", sections.water.header, "RIGHT", -292, 0)
+	sections.water.extras = { allRanks, allRanks.label }
+	UI.allRanks = allRanks
 	local reset = NewButton(sections.group.header, "Reset handed out", 130, 20)
 	reset:SetPoint("RIGHT", sections.group.header, "RIGHT", -34, 0)
 	reset:SetScript("OnClick", Guard("Reset handed out", function() ns.Trade.ResetHanded() end))
-	Tip(reset, "Reset handed out", "Forget who was already given their share, so everyone gets a new one.")
+	Tip(reset, "Reset handed out", "Forget who was already given their share now, so everyone gets a new one. Hand-outs are also forgotten by themselves after the time set below.")
 	sections.group.action = reset
 
 	-- For the offline harness and the debug report.
@@ -1349,7 +1490,7 @@ local function Build()
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
 		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs, tabStrip = tabStrip,
-		targetsBox = targetsBox,
+		targetsBox = targetsBox, gemRows = gemRows,
 		announceBox = announceBox, announcePreview = announcePreview, announceMove = announceMove,
 	}
 	local used = {}
@@ -1414,6 +1555,9 @@ function UI.Layout()
 		end
 		s.header.Summary:SetText(collapsed and SUMMARY[def.key]() or "")
 		if s.action then s.action:SetShown(not collapsed) end
+		if s.extras then
+			for _, region in ipairs(s.extras) do region:SetShown(not collapsed) end
+		end
 		-- The box closes after Food; the profile tabs hang from its bottom border.
 		if def.key == "food" and boxTop then
 			local boxBottom = bottom + BOX_PAD
@@ -1470,6 +1614,7 @@ function UI.Refresh()
 	end
 
 	RefreshTabs()
+	RefreshGems(sections.gems.body)
 	RefreshRanks("water")
 	RefreshRanks("food")
 	for _, r in ipairs(shareRows) do r.Sync() end

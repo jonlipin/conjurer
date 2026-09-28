@@ -91,12 +91,34 @@ function T.RankFor(kind, level)
 	return nil
 end
 
+-- What was handed to someone, while it still counts. After the time set in the Group section (0
+-- means until you reset it) it's forgotten and they're owed a whole share again.
+function T.Handed(guid)
+	local h = guid and ns.db.handed[guid]
+	if type(h) ~= "table" then return nil end
+	local minutes = tonumber(ns.db.handedMinutes) or 0
+	if minutes > 0 and h.t and (time() - h.t) >= minutes * 60 then
+		ns.db.handed[guid] = nil
+		ns.Log("forgot what " .. tostring(h.name) .. " was handed: " .. minutes .. " minutes passed")
+		return nil
+	end
+	return h
+end
+
+-- Minutes until a hand-out is forgotten, or nil when it's kept until reset.
+function T.HandedMinutesLeft(guid)
+	local h = T.Handed(guid)
+	local minutes = tonumber(ns.db.handedMinutes) or 0
+	if not (h and h.t) or minutes <= 0 then return nil end
+	return math.max(1, math.ceil((minutes * 60 - (time() - h.t)) / 60))
+end
+
 -- What a member is still owed: their class share minus what they were handed, one line per kind.
 -- With full set, the whole share again. The second value counts kinds with nothing you can make.
 function T.Owed(m, full)
 	local out, missing = {}, 0
 	local share = ns.Share(m.class or "WARRIOR")
-	local handed = (not full) and ns.db.handed[m.guid] or {}
+	local handed = (not full) and T.Handed(m.guid) or {}
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		local want = (share[kind] or 0) - (handed[kind] or 0)
 		if want > 0 then
@@ -148,7 +170,8 @@ function T.Status(m)
 	local trading = T.open and T.partner and T.partner.guid == m.guid
 	if #owed == 0 then
 		if missing > 0 then return "Nothing you can make", "grey", nil end
-		return "Handed out", "done", trading and "Fill" or "Again"
+		local left = T.HandedMinutesLeft(m.guid)
+		return "Handed out" .. (left and (" (" .. left .. "m)") or ""), "done", trading and "Fill" or "Again"
 	end
 	if not m.connected then return "Offline", "grey", nil end
 	if not trading and not InRange(m.unit) then return "Out of range", "grey", "Trade" end
@@ -198,6 +221,19 @@ function T.FillTargets(announce)
 	end
 	if announce then
 		ns.Print("Targets set from your group: " .. (#parts > 0 and table.concat(parts, ", ") or "nothing") .. ".")
+	end
+	-- Lower ranks set for low-level players stay hidden, and unconjured, until they're shown.
+	if not ns.db.showAllRanks then
+		local hidden = {}
+		for _, kind in ipairs(ns.KIND_ORDER) do
+			for _, entry in ipairs(ns.KINDS[kind]) do
+				if (sums[kind][entry.rank] or 0) > 0 and not ns.Shown(entry) then hidden[#hidden + 1] = ns.ShortName(entry) end
+			end
+		end
+		if #hidden > 0 then
+			ns.Print("Some of your group need a lower rank (" .. table.concat(hidden, ", ")
+				.. "). Tick Show all ranks to see and conjure it.")
+		end
 	end
 	ns.Refresh()
 end
@@ -531,7 +567,7 @@ local function Record(offer)
 	if T.recorded or not T.partner or not offer then return end
 	T.recorded = true
 	local guid = T.partner.guid
-	local entryFor = ns.db.handed[guid] or {}
+	local entryFor = T.Handed(guid) or {}
 	local parts = {}
 	for id, n in pairs(offer) do
 		local entry = ns.BY_ITEM[id]
@@ -542,6 +578,7 @@ local function Record(offer)
 	end
 	if #parts > 0 then
 		entryFor.name = T.partner.name
+		entryFor.t = time()
 		ns.db.handed[guid] = entryFor
 		table.sort(parts)
 		ns.Print("Handed " .. T.partner.name .. " " .. table.concat(parts, " and ") .. ".")

@@ -45,8 +45,9 @@ local YIELD = {
 	[10144] = { 2, 2, 42, 51 }, [10145] = { 2, 2.25, 52, 61 }, [28612] = { 10, 2, 60, 65 },
 }
 
--- The yield of one cast at a level, from the spell data.
+-- The yield of one cast at a level, from the spell data. A mana gem is always one.
 function ns.FormulaYield(entry, level)
+	if entry.kind == "gem" then return 1 end
 	local y = YIELD[entry.spell]
 	if not (y and type(level) == "number") then return nil end
 	local steps = math.max(0, math.min(level, y[4]) - y[3])
@@ -58,6 +59,14 @@ ns.KIND_ORDER = { "water", "food" }
 ns.KIND_LABEL = { water = "Water", food = "Food" }
 ns.STACK = 20
 
+-- Mana gems: one of each can be carried (ItemSparse MaxCount 1), so keeping one means a target of 1.
+ns.GEMS = {
+	{ rank = 1, spell = 759,   item = 5514, level = 23, name = "Mana Agate" },
+	{ rank = 2, spell = 3552,  item = 5513, level = 38, name = "Mana Jade" },
+	{ rank = 3, spell = 10053, item = 8007, level = 48, name = "Mana Citrine" },
+	{ rank = 4, spell = 10054, item = 8008, level = 58, name = "Mana Ruby" },
+}
+
 ns.BY_SPELL, ns.BY_ITEM = {}, {}
 for _, kind in ipairs(ns.KIND_ORDER) do
 	for _, entry in ipairs(ns.KINDS[kind]) do
@@ -65,6 +74,11 @@ for _, kind in ipairs(ns.KIND_ORDER) do
 		ns.BY_SPELL[entry.spell] = entry
 		ns.BY_ITEM[entry.item] = entry
 	end
+end
+for _, gem in ipairs(ns.GEMS) do
+	gem.kind = "gem"
+	ns.BY_SPELL[gem.spell] = gem
+	ns.BY_ITEM[gem.item] = gem
 end
 
 -- The classes of the original game, in the order the game lists them.
@@ -88,6 +102,8 @@ local DEFAULTS = {
 	profiles = {},
 	profile = "solo",
 	profileAuto = true,
+	showAllRanks = false,
+	gems = { keep = false },
 	shares = {},
 	keep = { water = 40, food = 20 },
 	key = "F",
@@ -101,6 +117,7 @@ local DEFAULTS = {
 	collapsed = { options = true },
 	minimap = { shown = true, angle = 200 },
 	handed = {},
+	handedMinutes = 30,
 	macro = { perCharacter = true, auto = false, made = false },
 	alert = { enabled = true, water = 20, food = 10, sound = false, when = "out" },
 	announce = { shown = false, groupOnly = true },
@@ -294,7 +311,14 @@ end
 
 function ns.Target(entry)
 	if not ns.db then return 0 end
+	if entry.kind == "gem" then return ns.KeepsGem(entry) and 1 or 0 end
 	return tonumber(ns.Profile()[entry.kind][entry.rank]) or 0
+end
+
+-- A gem is kept when "Keep your mana gems" is on and its own box is ticked (they all start ticked).
+function ns.KeepsGem(gem)
+	local gems = ns.db and ns.db.gems
+	return gems and gems.keep and gems[gem.spell] ~= false and true or false
 end
 
 -- Zero is stored rather than removed, so a target the player cleared stays cleared.
@@ -308,6 +332,12 @@ function ns.TopKnown(kind)
 	for r = #list, 1, -1 do
 		if ns.Known(list[r].spell) then return list[r] end
 	end
+end
+
+-- Whether a rank is listed, and so conjured: with "Show all ranks" off, only your best of each kind.
+function ns.Shown(entry)
+	if entry.kind == "gem" or (ns.db and ns.db.showAllRanks) then return ns.Known(entry.spell) end
+	return ns.TopKnown(entry.kind) == entry
 end
 
 -- Each profile starts with its own amounts at your best ranks (Solo with what you keep), once you
@@ -398,6 +428,7 @@ function ns.ItemIcon(entry)
 		local ok, icon = pcall(C_Item.GetItemIconByID, entry.item)
 		if ok and icon then return icon end
 	end
+	if entry.kind == "gem" then return "Interface\\Icons\\INV_Misc_Gem_Ruby_01" end
 	return entry.kind == "water" and "Interface\\Icons\\INV_Drink_18" or "Interface\\Icons\\INV_Misc_Food_73"
 end
 

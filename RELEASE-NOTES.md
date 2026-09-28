@@ -4,6 +4,9 @@ First release.
 
 - Conjure every rank of food and water to a target you set. Click play, hold one key, and the game's own Press and Hold Casting conjures until the row's target is met, then stops there: Conjurer learns how much each cast makes and moves on during the last one. A chime says when to press again for the next row.
 - Profiles for every group size: Solo, Party, Raid 10, Raid 20, Raid 40, and battlegrounds of 10, 20 and 40 a side (Warsong Gulch, Arathi Basin, Alterac Valley), each with its own amounts to conjure, on Blizzard-style tabs hanging from the box that holds the Water and Food sliders. The profile follows your group, a battleground by its own size, and a tab you click holds until your group changes size.
+- Show all ranks: off by default, only your best rank of water and food is listed and conjured; ticked, every rank you know.
+- Mana gems: keep one of each you tick. Ready conjures the missing ones first, and the low alert shows them until you have them.
+- Handed-out shares are forgotten after a time you set in the Group section (30 minutes to start).
 - Ready borrows one button on an action bar you don't show and binds your key to it only while Ready is lit. It switches off by itself when you're done or enter combat, and puts your settings and your key back.
 - Shares by class for your party or raid, filled into the trade window at the best rank each person can use, with a Group list showing who is ready, short, out of range or already handed out. A Give share button under the trade window does it by hand, for anyone.
 - Fill targets from group: every target set to what your group is owed plus what you keep.

@@ -349,13 +349,19 @@ end
 -- The plan
 -- ------------------------------------------------------------------
 
--- Every row with a target, water first, best rank first.
+-- Every listed row with a target, water first, best rank first. A rank hidden by "Show all ranks"
+-- being off isn't conjured either: Ready only works to what you can see.
 function C.Rows()
 	local rows = {}
+	-- Kept mana gems first, best first: one quick cast each.
+	for r = #ns.GEMS, 1, -1 do
+		local gem = ns.GEMS[r]
+		if ns.Target(gem) > 0 and ns.Known(gem.spell) then rows[#rows + 1] = gem end
+	end
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		local list = ns.KINDS[kind]
 		for r = #list, 1, -1 do
-			if ns.Target(list[r]) > 0 then rows[#rows + 1] = list[r] end
+			if ns.Target(list[r]) > 0 and ns.Shown(list[r]) then rows[#rows + 1] = list[r] end
 		end
 	end
 	return rows

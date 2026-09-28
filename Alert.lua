@@ -70,10 +70,16 @@ local function Place()
 end
 
 local function Tooltip(self)
-	local kind = self.kind
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-	GameTooltip:SetText("Conjured " .. ns.KIND_LABEL[kind]:lower() .. " is low", 1, 0.82, 0)
-	GameTooltip:AddLine(A.Total(kind) .. " left; the alert shows below " .. tostring(ns.db.alert[kind]) .. ".", 1, 1, 1, true)
+	if self.gem then
+		local have = ns.Count(self.gem.item) > 0
+		GameTooltip:SetText(ns.ItemName(self.gem) .. (have and " is in your bags" or " is missing"), 1, 0.82, 0)
+		GameTooltip:AddLine("Conjurer keeps one of each mana gem you tick.", 1, 1, 1, true)
+	else
+		local kind = self.kind
+		GameTooltip:SetText("Conjured " .. ns.KIND_LABEL[kind]:lower() .. " is low", 1, 0.82, 0)
+		GameTooltip:AddLine(A.Total(kind) .. " left; the alert shows below " .. tostring(ns.db.alert[kind]) .. ".", 1, 1, 1, true)
+	end
 	if A.preview then GameTooltip:AddLine("Showing so you can move it. Drag it where you want it.", 0.6, 0.85, 1, true) end
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("Click: open Conjurer", 0.7, 0.7, 0.7)
@@ -100,11 +106,33 @@ function A.TogglePlay()
 	end
 	if C.Arm() then
 		A.sticky = {}
-		for _, kind in ipairs(ns.KIND_ORDER) do
-			if icons[kind] and icons[kind]:IsShown() then A.sticky[kind] = true end
+		for key, b in pairs(icons) do
+			if b:IsShown() then A.sticky[key] = true end
 		end
 	end
 	A.Update(true)
+end
+
+-- A mana gem you keep, know and haven't got.
+function A.GemMissing(gem)
+	local db = ns.db and ns.db.alert
+	if not (db and db.enabled and ns.isMage) then return false end
+	return ns.KeepsGem(gem) and ns.Known(gem.spell) and ns.Count(gem.item) == 0
+end
+
+-- Everything the alert can show, in order: water, food, then the gems you keep, best first.
+local function Entries()
+	local list = {}
+	for _, kind in ipairs(ns.KIND_ORDER) do
+		local top = ns.TopKnown(kind)
+		list[#list + 1] = { key = kind, kind = kind, entry = top, canShow = top ~= nil, low = A.Low(kind), label = kind }
+	end
+	for r = #ns.GEMS, 1, -1 do
+		local gem = ns.GEMS[r]
+		list[#list + 1] = { key = "gem" .. gem.spell, gem = gem, entry = gem, label = gem.name,
+			canShow = ns.KeepsGem(gem) and ns.Known(gem.spell), low = A.GemMissing(gem) }
+	end
+	return list
 end
 
 -- A small button made of three atlases (up, down, highlight), or a word when they are missing.
@@ -142,6 +170,29 @@ end
 local PLAY = { "charactercreate-customize-playbutton", "charactercreate-customize-playbutton-down" }
 local STOP = { "charactercreate-customize-stopbutton", "charactercreate-customize-stopbutton-down" }
 
+-- The icon for an entry, made the first time it's needed.
+local function Icon(e)
+	if icons[e.key] then return icons[e.key] end
+	local name = e.gem and ("ConjurerAlertGem" .. e.gem.rank) or ("ConjurerAlert" .. ns.KIND_LABEL[e.kind])
+	local b = CreateFrame("Button", name, holder)
+	b:SetSize(SIZE, SIZE)
+	b.kind, b.gem = e.kind, e.gem
+	ns.UI.DressIcon(b, SIZE)
+	b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+	b.count:SetPoint("BOTTOMRIGHT", -3, 3)
+	b.glow, b.anim = ns.UI.MakeGlow(b, SIZE)
+	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	Drag(b)
+	b:SetScript("OnClick", ns.Guard("alert click", function(_, which)
+		if which == "RightButton" then A.TogglePlay() else ns.UI.Show() end
+	end))
+	b:SetScript("OnEnter", Tooltip)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	b:Hide()
+	icons[e.key] = b
+	return b
+end
+
 local function Build()
 	if holder then return end
 	ns.Stage("building the alert")
@@ -151,24 +202,7 @@ local function Build()
 	holder:SetMovable(true)
 	holder:SetClampedToScreen(true)
 	Place()
-	for _, kind in ipairs(ns.KIND_ORDER) do
-		local b = CreateFrame("Button", "ConjurerAlert" .. ns.KIND_LABEL[kind], holder)
-		b:SetSize(SIZE, SIZE)
-		b.kind = kind
-		ns.UI.DressIcon(b, SIZE)
-		b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
-		b.count:SetPoint("BOTTOMRIGHT", -3, 3)
-		b.glow, b.anim = ns.UI.MakeGlow(b, SIZE)
-		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-		Drag(b)
-		b:SetScript("OnClick", ns.Guard("alert click", function(_, which)
-			if which == "RightButton" then A.TogglePlay() else ns.UI.Show() end
-		end))
-		b:SetScript("OnEnter", Tooltip)
-		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		b:Hide()
-		icons[kind] = b
-	end
+	for _, kind in ipairs(ns.KIND_ORDER) do Icon({ key = kind, kind = kind }) end
 
 	controls = CreateFrame("Frame", nil, holder)
 	controls:SetSize(CONTROLS, SIZE)
@@ -227,19 +261,25 @@ function A.Update(quiet)
 	if not ns.db then return end
 	local db = ns.db.alert
 	if A.sticky and not ns.Conjure.armed then A.sticky = nil end
-	local show = {}
-	for _, kind in ipairs(ns.KIND_ORDER) do
-		local low = A.Low(kind)
-		if low and not wasLow[kind] then
-			ns.Log("alert: " .. kind .. " low, " .. A.Total(kind) .. " left (alert below " .. tostring(db[kind]) .. ")")
+	local show, labels = {}, {}
+	for _, e in ipairs(Entries()) do
+		local low = e.low
+		if low and not wasLow[e.key] then
+			if e.gem then
+				ns.Log("alert: " .. e.gem.name .. " missing")
+			else
+				ns.Log("alert: " .. e.kind .. " low, " .. A.Total(e.kind) .. " left (alert below " .. tostring(db[e.kind]) .. ")")
+			end
 			if db.sound and not quiet and A.RightTime() then pcall(PlaySound, (SOUNDKIT and SOUNDKIT.MAP_PING) or 3175, "SFX") end
-		elseif wasLow[kind] and not low then
-			ns.Log("alert: " .. kind .. " fine again, " .. A.Total(kind) .. " left")
+		elseif wasLow[e.key] and not low then
+			ns.Log("alert: " .. e.label .. (e.gem and " back in your bags" or (" fine again, " .. A.Total(e.kind) .. " left")))
 		end
-		wasLow[kind] = low
-		local canShow = ns.isMage and ns.TopKnown(kind) ~= nil
-		local sticky = A.sticky and A.sticky[kind]
-		if canShow and (A.preview or sticky or (low and A.RightTime())) then show[#show + 1] = kind end
+		wasLow[e.key] = low
+		local sticky = A.sticky and A.sticky[e.key]
+		if ns.isMage and e.canShow and (A.preview or sticky or (low and A.RightTime())) then
+			show[#show + 1] = e
+			labels[#labels + 1] = e.label
+		end
 	end
 	if #show == 0 then
 		if holder then holder:Hide() end
@@ -247,16 +287,15 @@ function A.Update(quiet)
 		return
 	end
 	Build()
-	for _, kind in ipairs(ns.KIND_ORDER) do icons[kind]:Hide() end
-	for i, kind in ipairs(show) do
-		local b = icons[kind]
-		local top = ns.TopKnown(kind)
-		b.icon:SetTexture(top and ns.ItemIcon(top) or nil)
-		b.count:SetText(A.Total(kind))
+	for _, b in pairs(icons) do b:Hide() end
+	for i, e in ipairs(show) do
+		local b = Icon(e)
+		b.icon:SetTexture(e.entry and ns.ItemIcon(e.entry) or nil)
+		b.count:SetText(e.gem and "" or A.Total(e.kind))
 		b:ClearAllPoints()
 		b:SetPoint("LEFT", holder, "LEFT", (i - 1) * (SIZE + GAP), 0)
 		b:Show()
-		local glowing = A.Low(kind) or A.preview
+		local glowing = e.low or A.preview
 		b.glow:SetShown(glowing and true or false)
 		if glowing and not b.anim:IsPlaying() then b.anim:Play() elseif not glowing then b.anim:Stop() end
 	end
@@ -266,7 +305,7 @@ function A.Update(quiet)
 	holder:SetWidth(iconsWidth + GAP + CONTROLS)
 	PaintPlay()
 	holder:Show()
-	report["alert showing"] = table.concat(show, " and ") .. (A.preview and " (moving)" or "") .. (A.sticky and " (conjuring)" or "")
+	report["alert showing"] = table.concat(labels, " and ") .. (A.preview and " (moving)" or "") .. (A.sticky and " (conjuring)" or "")
 end
 
 -- Called with every refresh of the addon: keeps the play button's face and the counts current.
@@ -277,8 +316,8 @@ function A.Refresh()
 		return
 	end
 	if holder and holder:IsShown() then
-		for _, kind in ipairs(ns.KIND_ORDER) do
-			if icons[kind]:IsShown() then icons[kind].count:SetText(A.Total(kind)) end
+		for _, b in pairs(icons) do
+			if b:IsShown() then b.count:SetText(b.gem and "" or A.Total(b.kind)) end
 		end
 		PaintPlay()
 	end
@@ -304,6 +343,9 @@ function A.Summary()
 	local low = {}
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		if A.Low(kind) then low[#low + 1] = kind end
+	end
+	for r = #ns.GEMS, 1, -1 do
+		if A.GemMissing(ns.GEMS[r]) then low[#low + 1] = ns.GEMS[r].name end
 	end
 	return "water below " .. tostring(db.water) .. ", food below " .. tostring(db.food) .. ", "
 		.. (A.WHEN_LABEL[db.when or "out"] or "Out of combat"):lower()

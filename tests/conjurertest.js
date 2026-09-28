@@ -194,7 +194,11 @@ end
 
 MinimalSliderWithSteppersMixin = { Event = { OnValueChanged = "OnValueChanged" }, Label = { Left = 1, Right = 2 } }
 function PanelTemplates_SetTab(frame, id) frame.selectedTab = id end
-function PanelTemplates_TabResize(tab, padding, size, minWidth) tab.w = math.max(minWidth or 0, #(tab.text or "") * 6 + 20) end
+function PanelTemplates_TabResize(tab, padding, size, minWidth)
+  if size then tab.w = math.max(72, size) else tab.w = math.max(minWidth or 72, #(tab.text or "") * 6 + 20) end
+end
+M.SetFrameLevel = function(s, v) s.level = v end
+M.GetFrameLevel = function(s) return s.level or 1 end
 -- Where the player is: INSTANCE = { inside = true, kind = "pvp", max = 40 } in a battleground.
 function IsInInstance() if INSTANCE and INSTANCE.inside then return true, INSTANCE.kind end return false, "none" end
 function GetInstanceInfo() local i = INSTANCE or {} return "Somewhere", i.kind or "none", 0, "", i.max or 0 end
@@ -230,6 +234,7 @@ function GetClassInfo(i) return CLASSES[i]:sub(1, 1) .. CLASSES[i]:sub(2):lower(
 NOW = 1000
 TIMERS = {}
 function GetTime() return NOW end
+function time() return math.floor(NOW) end
 C_Timer = {
   After = function(sec, fn) TIMERS[#TIMERS + 1] = { due = NOW + sec, fn = fn } end,
   NewTicker = function(sec, fn) local t = { Cancel = function(self) self.cancelled = true end } TICKERS = (TICKERS or 0) + 1 return t end,
@@ -758,7 +763,11 @@ check("the Ready glow is the spell alert flipbook", ns.report["ready glow"] == "
 
 local waterRows = P.rankRows.water
 check("seven water rows, best rank first", #waterRows == 7 and waterRows[1].entry.rank == 7 and waterRows[7].entry.rank == 1)
-check("with every rank learned all seven show", waterRows[1].shown and waterRows[7].shown and P.sections.water.body.h == 2 + 7 * 28 + 2)
+check("by default only your best rank of each is listed", waterRows[1].shown and not waterRows[2].shown and not waterRows[7].shown
+  and P.sections.water.body.h == 2 + 28 + 2 and P.rankRows.food[1].shown and not P.rankRows.food[2].shown)
+check("the Show all ranks box sits in the Water header, off", UI.allRanks and UI.allRanks.parent == P.sections.water.header and not UI.allRanks.checked)
+Click(UI.allRanks)
+check("ticked, every rank you know is listed", ns.db.showAllRanks and waterRows[7].shown and P.sections.water.body.h == 2 + 7 * 28 + 2)
 check("names drop the word Conjured", waterRows[1].name.text == "Crystal Water", waterRows[1].name.text)
 check("each row says the level needed", waterRows[1].level.text == "Level 55" and waterRows[7].level.text == "Level 1")
 check("and how many you have", waterRows[1].have.text == "Have 0")
@@ -1107,7 +1116,18 @@ TradeComplete()
 RunTimers(2)
 check("when it completes her share is counted", ns.db.handed["Player-70-E1"] and ns.db.handed["Player-70-E1"].water == 40 and ns.db.handed["Player-70-E1"].food == 20)
 check("and said", ChatWith("Handed Elyse 20 Cinnamon Roll and 40 Crystal Water.") == 1)
-check("she shows as handed out", ({ T.Status(members[1]) })[1] == "Handed out" and P.memberRows[1].button.text == "Again")
+check("she shows as handed out, with how long until it's forgotten", ({ T.Status(members[1]) })[1] == "Handed out (30m)" and P.memberRows[1].button.text == "Again")
+check("the Group section has the forget-after slider, at 30 minutes", P.sections.group.body.minutesSlider and P.sections.group.body.minutesSlider.Slider.value == 30)
+RunTimers(20 * 60)
+check("20 minutes on, 10 are left", ({ T.Status(members[1]) })[1] == "Handed out (10m)")
+RunTimers(11 * 60)
+check("after 30 minutes she's owed a share again", not ({ T.Status(members[1]) })[1]:find("Handed out", 1, true) and ns.db.handed["Player-70-E1"] == nil)
+check("and the log says why", table.concat(ConjurerLog.entries, "\n"):find("forgot what Elyse was handed: 30 minutes passed", 1, true) ~= nil)
+P.sections.group.body.minutesSlider.Slider:SetValue(0) RunTimers(0)
+ns.db.handed["Player-70-E1"] = { water = 40, food = 20, name = "Elyse", t = time() - 99999 }
+check("set to 0, a hand-out is kept until reset", ns.db.handedMinutes == 0 and ({ T.Status(members[1]) })[1] == "Handed out")
+P.sections.group.body.minutesSlider.Slider:SetValue(30) RunTimers(0)
+ns.db.handed["Player-70-E1"] = { water = 40, food = 20, name = "Elyse", t = time() }
 check("the bags lost exactly that", C_Item.GetItemCount(8079) == 20 and C_Item.GetItemCount(22895) == 20)
 
 -- A cancelled trade gives nothing.
@@ -1272,11 +1292,14 @@ local foodBody = P.sections.food.body
 check("Water and Food sit in their own inset", ns.report["targets box"] == "InsetFrameTemplate" and box.NineSlice ~= nil)
 check("the box wraps them with a margin", TopOf(box) + 6 == TopOf(P.sections.water.header) and TopOf(box) + box.h == TopOf(foodBody) + foodBody.h + 6 and P.sections.water.header.points[1][4] == 6 and P.sections.food.body.points[2][4] == -6)
 check("sections outside the box keep the full width", P.sections.shares.header.points[1][4] == 0)
-check("eight profile tabs hang from its bottom border", #P.tabs == 8 and P.tabs[1].text == "Solo" and P.tabs[8].text == "AV 40" and P.tabs[1].points[1][2] == box and P.tabs[1].points[1][3] == "BOTTOMLEFT" and P.tabs[1].points[1][4] == 11 and P.tabs[1].points[1][5] == 2)
-check("overlapping like Blizzard's", P.tabs[2].points[1][1] == "LEFT" and P.tabs[2].points[1][2] == P.tabs[1] and P.tabs[2].points[1][4] == -16)
+check("eight profile tabs hang from its bottom border", #P.tabs == 8 and P.tabs[1].text == "Solo" and P.tabs[8].text == "AV 40" and P.tabs[1].points[1][2] == box and P.tabs[1].points[1][3] == "BOTTOMLEFT" and P.tabs[1].points[1][4] == 8 and P.tabs[1].points[1][5] == 2)
+check("side by side, 3 apart, not overlapping", P.tabs[2].points[1][1] == "LEFT" and P.tabs[2].points[1][2] == P.tabs[1] and P.tabs[2].points[1][4] == 3)
 check("in Blizzard's tab template", ns.report["profile tabs"] == "PanelTabButtonTemplate" and #strip.Tabs == 8)
 check("Solo's tab is the selected one", SelectedTab() == 1)
-check("they fit the list at full size", 11 + 8 * 72 - 7 * 16 <= P.content.w and (strip.scale or 1) == 1)
+local tabW = P.tabs[1].w
+local rowRight = 8 + 8 * tabW + 7 * 3
+check("spread evenly across the whole width at full size", tabW >= 72 and P.tabs[8].w == tabW and rowRight <= P.content.w and rowRight >= P.content.w - 11, tabW .. " " .. rowRight)
+check("the selected tab sits above its neighbours", P.tabs[1].level > P.tabs[2].level)
 check("the next section starts below the tabs", SharesTop() >= TopOf(box) + box.h + 32)
 ns.db.collapsed.food = true
 UI.Refresh()
@@ -1593,6 +1616,45 @@ check("closed, the section sums it up", P.sections.announce.header.Summary.text 
 ns.db.collapsed.announce = false
 UI.Refresh()
 
+-- ---- Mana gems ------------------------------------------------------------------
+if C.armed then C.Disarm() end
+UI.Show() RunTimers(0)
+for _, g in ipairs(ns.GEMS) do KNOWN[g.spell] = true end
+fire("SPELLS_CHANGED") RunTimers(0)
+ClearBags()
+local keepWater, keepFood = ns.Profile().water[7], ns.Profile().food[7]
+for r = 1, 7 do ns.Profile().water[r] = 0 ns.Profile().food[r] = 0 end
+UI.Refresh()
+local GB = P.sections.gems.body
+check("the Mana gems section lists the gems you know, best first", P.gemRows[1].shown and P.gemRows[1].gem.name == "Mana Ruby"
+  and P.gemRows[4].shown and P.gemRows[1].have.text == "Missing" and P.gemRows[1].level.text == "Level 58")
+check("keeping them is off to start", ns.db.gems.keep == false and C.CurrentRow() == nil)
+Click(GB.keepCheck)
+check("ticked, every gem you know is kept, best first", ns.db.gems.keep and ns.KeepsGem(ns.GEMS[1]) and C.CurrentRow() == ns.GEMS[4])
+check("and the missing ones show on the alert", ConjurerAlertGem4 and ConjurerAlertGem4:IsVisible() and ConjurerAlertGem1:IsVisible()
+  and ConjurerAlertGem4.icon.texture == "itemicon:8008" and ConjurerAlertGem4.count.text == "")
+Click(P.gemRows[2].check)
+check("a gem you untick isn't kept", ns.db.gems[10053] == false and not ns.KeepsGem(ns.GEMS[3]) and not ConjurerAlertGem3:IsVisible())
+ns.db.collapsed.gems = true
+UI.Refresh()
+check("closed, the section sums it up", P.sections.gems.header.Summary.text == "keeping 3, 3 missing", P.sections.gems.header.Summary.text)
+ns.db.collapsed.gems = false
+UI.Refresh()
+Click(P.readyButton)
+local gemCasts = Hold("F", 100)
+check("one press conjures the missing gem and the hold stops there", gemCasts == 1 and C_Item.GetItemCount(8008) == 1 and C.armed, gemCasts)
+check("the next kept gem is already on the button", ACTIONS[C.where.slot] and ACTIONS[C.where.slot].id == 3552)
+Hold("F", 100)
+Hold("F", 100)
+check("with every kept gem made, Ready goes off", not C.armed and C_Item.GetItemCount(5513) == 1 and C_Item.GetItemCount(5514) == 1
+  and C_Item.GetItemCount(8007) == 0)
+check("and the alert lets them go", not ConjurerAlertGem4:IsVisible() and not ConjurerAlertGem1:IsVisible())
+check("the rows say so", P.gemRows[1].have.text == "Have it")
+Click(GB.keepCheck)
+ns.Profile().water[7], ns.Profile().food[7] = keepWater, keepFood
+for _, g in ipairs(ns.GEMS) do KNOWN[g.spell] = nil end
+fire("SPELLS_CHANGED") RunTimers(0)
+
 -- ---- The eat and drink macro ----------------------------------------------
 local Mac = ns.Macro
 ClearBags()
@@ -1744,6 +1806,9 @@ const scenarios = [
     ns.UI.Toggle() RunTimers(0)
     local rows = ns.UI.parts.rankRows.water
     local body = ns.UI.parts.sections.water.body
+    check("by default only the best rank it knows is listed", rows[5].shown and not rows[6].shown and not rows[7].shown and body.h == 2 + 28 + 2)
+    ns.db.showAllRanks = true
+    ns.UI.Refresh()
     check("ranks not learned are not shown", not rows[1].shown and not rows[2].shown and not rows[3].shown and not rows[4].shown)
     check("the learned ones are", rows[5].shown and rows[6].shown and rows[7].shown and rows[5].name.text == "Purified Water")
     check("closed up at the top, best first", rows[5].points[1][5] == -2 and rows[6].points[1][5] == -30 and rows[7].points[1][5] == -58)
@@ -1794,6 +1859,21 @@ const scenarios = [
     check("the other profiles start at the best rank known", ns.db.profiles.party.water[3] == 100 and ns.db.profiles.bg40.food[3] == 100)
     check("alone, Solo is in use", ns.db.profile == "solo" and ns.Target(ns.WATER[3]) == 60)
     check("the move is logged", table.concat(ConjurerLog.entries, "\n"):find("saved settings: targets moved into the Solo profile", 1, true) ~= nil)
+  ` },
+  { label: 'only your best rank', code: String.raw`
+    local ns = Login()
+    KnowAll()
+    fire("SPELLS_CHANGED") RunTimers(0)
+    ns.Profile().water[7] = 0
+    ns.Profile().water[6] = 40
+    check("a target on a hidden rank isn't conjured", ns.Conjure.CurrentRow() == ns.FOOD[7])
+    ns.db.showAllRanks = true
+    check("once shown, it is", ns.Conjure.CurrentRow() == ns.WATER[6])
+    ns.db.showAllRanks = false
+    GROUP = { { unit = "party1", guid = "L1", name = "Low", level = 48, class = "PRIEST" } }
+    ns.Trade.FillTargets(true)
+    check("a group needing a lower rank is told to show all ranks",
+      ChatWith("Some of your group need a lower rank (Sparkling Water, Sweet Roll). Tick Show all ranks to see and conjure it.") == 1)
   ` },
   { label: 'no FlipBook', code: String.raw`
     BAD_FLIPBOOK = true
@@ -1864,8 +1944,9 @@ const bareDriver = driver
   .replace(/check\("the play button turns into a stop button"[^\n]*\n[^\n]*\n/, 'check("and Stop while lit", P.readyButton.playText.shown and P.readyButton.playText.text == "Stop")\n')
   .replace(/check\("and the play button greys out"[^\n]*\n/, 'check("and Start fades when there is nothing to start", P.readyButton.playText.text == "Start" and P.readyButton.playText.alpha < 1)\n')
   .replace(/check\("Water and Food sit in their own inset"[^\n]*\n/, 'check("without the inset template Water and Food get a plain box", ns.report["targets box"] == "plain")\n')
-  .replace(/check\("overlapping like Blizzard's"[^\n]*\n/, 'check("plain tabs sit side by side", P.tabs[2].points[1][4] == 3)\n')
-  .replace(/check\("they fit the list at full size"[^\n]*\n/, 'check("they fit the list", 11 + 8 * 64 + 7 * 3 <= P.content.w)\n')
+  .replace(/check\("side by side, 3 apart, not overlapping"[^\n]*\n/, 'check("plain tabs sit side by side", P.tabs[2].points[1][4] == 3)\n')
+  .replace(/check\("spread evenly across the whole width at full size"[^\n]*\n/, 'check("they fit the list", 8 + 8 * P.tabs[1].w + 7 * 3 <= P.content.w)\n')
+  .replace(/check\("the selected tab sits above its neighbours"[^\n]*\n/, '')
   .replace(/check\("in Blizzard's tab template"[^\n]*\n/, 'check("without the tab template the tabs are plain buttons", ns.report["profile tabs"] == "plain" and P.tabs[1].bg ~= nil)\n')
   .replace(/check\("it has the window's templates"[^\n]*\n/, 'check("it has the window\'s stand-ins", all:find("window built: window template plain; slider template plain", 1, true) ~= nil)\n')
   .replace(/check\("the combat guard is a secure state driver"[^\n]*\n/, 'check("without the secure template there is no state driver, and the report says so", #STATE_DRIVERS == 0 and ns.report["combat guard"]:find("none", 1, true) ~= nil)\n')

@@ -8,16 +8,23 @@ Type `/conjure` (or `/conjurer`), or click the minimap button.
 
 ## The window
 
-A Blizzard-style window with the Ready bar at the top and six sections you can fold away:
+A Blizzard-style window with the Ready bar at the top and sections you can fold away:
 
-- **Water** and **Food**: every rank, the level needed to use it, how many you have, and a slider
-  for how many you want. Only the ranks you've learned are listed. **Fill targets from group**
-  sets every target to what your group is still owed plus what you keep for yourself.
+- **Water** and **Food**: your best rank of each, the level needed to use it, how many you have,
+  and a slider for how many you want. Tick **Show all ranks** to list every rank you've learned,
+  for players too low for your best; Ready conjures only the ranks listed. **Fill targets from
+  group** sets every target to what your group is still owed plus what you keep for yourself, and
+  says so when someone needs a lower rank that isn't shown.
+- **Mana gems**: tick **Keep your mana gems** and Ready conjures any ticked gem you're missing
+  (one of each, as the game allows), before water and food. Missing gems also show on the low
+  alert.
 - **Shares by class**: how much water and food each class gets, and how much you keep. Options to
   fill the trade window by itself, to give each person the best rank they can use, and to include
   the whole raid or just your group of five.
 - **Group**: everyone in your party or raid with their share and whether they're ready, short,
   out of range or already handed out. The Trade button asks them to trade and fills the window.
+  A hand-out is forgotten after the time you set (30 minutes to start, 0 keeps it until you press
+  **Reset handed out**), so they're owed a new share.
 - **Eat and drink macro**: one action bar button that eats your best conjured food and drinks your
   best conjured water at the same time.
 - **Low food and water alert**: an icon that shows when you run low, with a threshold for each.
