@@ -454,21 +454,22 @@ end
 -- ------------------------------------------------------------------
 -- Drinking
 --
--- Out of mana, the key (and the click button) drinks your best conjured water instead of
--- conjuring, then conjures again. Once a drink is taken they do nothing until it's done: another
--- press would drink another water (in game, pressing on kept the drinking going forever) or stand
--- you up. Being out of mana is read two ways: from your mana and the
+-- Out of mana, the next press of the key (or click on the click button) drinks your best
+-- conjured water. As soon as that drink starts they conjure again, so you stand up and conjure
+-- whenever you like (the user's call). While the drink runs, the game saying "Not enough mana"
+-- doesn't make them drink another water: it says how long the drink has left instead. Being out of mana is read two ways: from your mana and the
 -- spell's cost when the client lets an addon read them, and from the game's own "Not enough mana"
 -- error. This client may hand an addon your mana only as a secret value (UnitPower is guarded by
--- SecretWhenUnitPowerRestricted), and the logs of 2026-09-28 showed no drinking at all. Drinking
--- ends when your mana is full, when that can be read; otherwise once the drink has run as long as
--- the water says ("over 18 sec"), or after a minute with no drink taken.
+-- SecretWhenUnitPowerRestricted), and the logs of 2026-09-28 showed no drinking at all. Wanting a
+-- drink ends when one is taken, when your mana is full (if that can be read), or after a minute
+-- with none taken; a drink runs as long as the water says ("over 18 sec").
 -- ------------------------------------------------------------------
 
 local THIRST_UNTOUCHED = 60
 local DRINK_FALLBACK = 24
 
-C.thirst = nil -- { entry, count, started, untilTime }
+C.thirst = nil      -- wanting a drink: { entry, count, started }
+C.drinkUntil = nil  -- when the drink being taken is done
 
 -- How long a drink of this water lasts, from its own spell's words.
 function C.DrinkSeconds(entry)
@@ -489,7 +490,7 @@ end
 
 -- Starts drinking when there's water to drink, and returns it.
 function C.StartThirst(why)
-	if not ns.db.drinkWhenOOM then return nil end
+	if not ns.db.drinkWhenOOM or C.DrinkLeft() then return nil end
 	if C.thirst then return C.thirst.entry end
 	local drink = C.DrinkEntry()
 	if not drink then
@@ -524,8 +525,6 @@ function C.Thirsty()
 		local now, max = C.Mana()
 		if now and max and max > 0 then
 			if now >= max then done = "mana full" end
-		elseif t.untilTime then
-			if GetTime() >= t.untilTime then done = "the drink has run its time" end
 		elseif GetTime() - t.started >= THIRST_UNTOUCHED then
 			done = "no drink taken for a minute"
 		end
@@ -543,28 +542,30 @@ local function NoteDrinks()
 	local t = C.thirst
 	if not t then return end
 	local now = ns.Count(t.entry.item)
-	if now < t.count and not t.untilTime then
+	if now < t.count then
+		-- A drink is taken: the spell goes straight back, and conjuring is yours to start.
 		local secs = C.DrinkSeconds(t.entry)
-		t.untilTime = GetTime() + secs
-		ns.Log("drinking " .. t.entry.name .. " for " .. secs .. " seconds")
-		C.Say("Drinking. Conjuring again in " .. secs .. " seconds.")
-		ns.After(secs + 0.5, function()
-			if C.thirst and not C.Thirsty() then
-				if C.armed then C.Update() end
-				ns.Refresh()
-			end
-		end)
+		C.drinkUntil = GetTime() + secs
+		C.thirst, C.lowWaterSaid = nil, nil
+		ns.Log("drinking " .. t.entry.name .. " for " .. secs .. " seconds; the spell is back")
+		C.Say("Drinking. " .. (C.armed and (C.KeyText() .. " conjures whenever you're ready.") or "Conjure whenever you're ready."))
+		ns.After(secs + 0.5, function() ns.Refresh() end)
 		if C.armed then C.Update() end
 		ns.Refresh()
+		return
 	end
 	t.count = now
 end
 
 -- Seconds left of the drink being taken, or nil when none is.
 function C.DrinkLeft()
-	local t = C.thirst
-	if not (t and t.untilTime) then return nil end
-	return math.max(0, math.ceil(t.untilTime - GetTime()))
+	if not C.drinkUntil then return nil end
+	local left = math.ceil(C.drinkUntil - GetTime())
+	if left <= 0 then
+		C.drinkUntil = nil
+		return nil
+	end
+	return left
 end
 C.NoteDrinks = NoteDrinks
 
@@ -634,15 +635,6 @@ local function Announce(text)
 	end
 end
 C.Say = Announce
-
--- Empties the borrowed button, after the key up when the key is down between casts.
-local function ClearSoon()
-	if C.hold.held and not C.inFlight then
-		C.placeOnRelease = true
-		return false
-	end
-	return C.ClearSlot()
-end
 
 local placeTries = 0
 local function PlaceSoon(entry, drink)
@@ -836,11 +828,11 @@ function C.CastStarted(spell, guid)
 				Announce("Bags full: this is the last " .. ns.ShortName(placed) .. " that fits.")
 				ns.Log("this cast of " .. placed.name .. " fills the bags; the button " .. (nextRow and ("now holds " .. nextRow.name) or "is empty"))
 			end
-		elseif ns.db.drinkWhenOOM and C.ShortOfMana(placed, 2) then
+		elseif ns.db.drinkWhenOOM and not C.DrinkLeft() and C.ShortOfMana(placed, 2) then
 			ns.Log("at the start of this cast, " .. C.ManaText(placed) .. ": not enough for another")
 			local drink = C.StartThirst("not enough for another " .. placed.name)
 			if drink and C.PlaceDrink(drink) then
-				Announce("Out of mana after this cast: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink) .. " until you're full.")
+				Announce("Out of mana after this cast: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink) .. " next.")
 				ns.Log("the button now holds " .. drink.name .. " to drink")
 			end
 		end
@@ -960,26 +952,23 @@ function C.Update()
 	C.working = row
 	-- Out of mana: the key drinks your best water, then conjures again.
 	local drink = ns.db.drinkWhenOOM and C.Thirsty() or nil
-	if not drink and ns.db.drinkWhenOOM and not C.inFlight and C.ShortOfMana(row) then
+	if not drink and ns.db.drinkWhenOOM and not C.inFlight and not C.DrinkLeft() and C.ShortOfMana(row) then
 		drink = C.StartThirst("not enough for " .. row.name)
 	end
 	if drink then
 		C.drinkPhase = true
-		if C.DrinkLeft() then
-			-- The drink is going: the key waits for it.
-			if C.placed or C.placedDrink then ClearSoon() end
-		elseif C.placedDrink ~= drink then
-			if not C.placedDrink then
-				Announce("Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink)
-					.. (C.Mana() and " until you're full." or " until the drink is done."))
-			end
+		if C.placedDrink ~= drink then
+			if not C.placedDrink then Announce("Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(drink) .. " next.") end
 			PlaceSoon(drink, true)
 		end
 		return
 	end
 	if C.drinkPhase then
 		C.drinkPhase = nil
-		Announce((C.ManaFull() and "Mana's full. " or "Drink done. ") .. "Hold " .. C.KeyText() .. " to conjure " .. ns.ShortName(row) .. ".")
+		-- Over without a drink taken (a drink taken says so itself).
+		if not C.DrinkLeft() then
+			Announce((C.ManaFull() and "Mana's full. " or "") .. "Hold " .. C.KeyText() .. " to conjure " .. ns.ShortName(row) .. ".")
+		end
 	end
 	if C.placed ~= row and not C.early then PlaceSoon(row) end
 end
@@ -999,12 +988,10 @@ function C.Status()
 	if C.armed then
 		row = C.working or row
 		local detail = row and (ns.ShortName(row) .. ": " .. ns.Count(row.item) .. " of " .. ns.Target(row) .. " (" .. ProfileLabel() .. ")") or "Finishing"
-		if C.DrinkLeft() and C.drinkPhase then
-			detail = "Drinking: " .. C.KeyText() .. " conjures again in " .. C.DrinkLeft() .. "s"
-				.. (C.Mana() and ", or once you're full" or "")
-		elseif C.placedDrink then
-			detail = "Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(C.placedDrink)
-				.. (C.Mana() and " until you're full" or " until the drink is done")
+		if C.placedDrink then
+			detail = "Out of mana: " .. C.KeyText() .. " drinks " .. ns.ShortName(C.placedDrink) .. " next"
+		elseif C.DrinkLeft() then
+			detail = "Drinking (" .. C.DrinkLeft() .. "s left): " .. C.KeyText() .. " conjures whenever you're ready"
 		end
 		if not C.HoldReady() then detail = detail .. ". Hold to cast is off, so press once per cast" end
 		return "Ready: hold " .. C.KeyText(), detail
@@ -1103,7 +1090,7 @@ ns.On("BAG_UPDATE_DELAYED", function() C.Update() end)
 ns.On("UNIT_POWER_UPDATE", function(unit)
 	if ns.Clean(unit) ~= "player" or not C.armed then return end
 	-- Only the moments that change what the key does: full while drinking, or short of a cast.
-	if (C.thirst and C.ManaFull()) or (not C.thirst and C.working and C.ShortOfMana(C.working)) then C.Update() end
+	if (C.thirst and C.ManaFull()) or (not C.thirst and not C.DrinkLeft() and C.working and C.ShortOfMana(C.working)) then C.Update() end
 end)
 
 -- The game's own word that a cast wanted more mana than you have: the one sign that needs no
@@ -1113,6 +1100,11 @@ ns.On("UI_ERROR_MESSAGE", function(kind, message)
 	local oom = (LE_GAME_ERR_OUT_OF_MANA ~= nil and kind == LE_GAME_ERR_OUT_OF_MANA)
 		or (ERR_OUT_OF_MANA ~= nil and message == ERR_OUT_OF_MANA)
 	if not (oom and ns.isMage and ns.db) then return end
+	-- Pressed while a drink runs: not another drink, just how long it has left.
+	if C.DrinkLeft() then
+		C.Say("Still drinking: " .. C.DrinkLeft() .. " seconds left.")
+		return
+	end
 	if C.StartThirst("the game said not enough mana") then
 		if C.armed then C.Update() end
 		ns.Refresh()
@@ -1153,7 +1145,8 @@ ns.debugSources[#ns.debugSources + 1] = function()
 	return {
 		"mana: " .. C.ManaText(row) .. "; drink when out of mana " .. tostring(ns.db and ns.db.drinkWhenOOM)
 			.. "; water to drink " .. (drink and (drink.name .. " x" .. ns.Count(drink.item)) or "none")
-			.. (C.thirst and ("; drinking now" .. (C.thirst.untilTime and (", " .. math.max(0, math.floor(C.thirst.untilTime - GetTime())) .. "s left") or "")) or ""),
+			.. (C.thirst and "; out of mana, the next press drinks" or "")
+			.. (C.DrinkLeft() and ("; drinking, " .. C.DrinkLeft() .. "s left") or ""),
 	}
 end
 

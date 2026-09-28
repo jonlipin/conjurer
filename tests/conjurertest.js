@@ -1204,28 +1204,42 @@ Click(P.readyButton)
 casts = Hold("F", 100)
 check("with mana for two casts, the hold ends after the second and the key drinks", casts == 2 and C.armed
   and C.thirst and C.thirst.entry == ns.WATER[7] and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].kind == "item" and ACTIONS[C.where.slot].id == 8079, casts)
-check("it says so", ErrorWith("Out of mana after this cast: F drinks Crystal Water until you're full."))
+check("it says so", ErrorWith("Out of mana after this cast: F drinks Crystal Water next."))
 check("the water went on the button while a cast was going, so nothing was refused", REFUSED_PLACES == 0, REFUSED_PLACES)
+UI.Refresh()
+check("the Ready bar says the next press drinks", P.readyDetail.text == "Out of mana: F drinks Crystal Water next", P.readyDetail.text)
 local waterBefore = C_Item.GetItemCount(8079)
 casts = Hold("F", 100)
 check("the next press drinks your best water", casts == 0 and DRANK == 1 and C_Item.GetItemCount(8079) == waterBefore - 1)
+check("and as soon as it does, the spell is back, for you to conjure whenever you like", not C.thirst and ACTIONS[C.where.slot]
+  and ACTIONS[C.where.slot].kind == "spell" and ACTIONS[C.where.slot].id == 10140 and REFUSED_PLACES == 0)
+check("it says so", ErrorWith("Drinking. F conjures whenever you're ready."))
 UI.Refresh()
-check("the Ready bar counts down the drink", P.readyDetail.text == "Drinking: F conjures again in 18s, or once you're full", P.readyDetail.text)
-check("and the key waits for it, so pressing on doesn't drink another", ACTIONS[C.where.slot] == nil and ErrorWith("Drinking. Conjuring again in 18 seconds."))
+check("the Ready bar counts down the drink", P.readyDetail.text == "Drinking (18s left): F conjures whenever you're ready", P.readyDetail.text)
+-- Pressed too soon: the game refuses for mana, and it's not another drink.
 waterBefore = C_Item.GetItemCount(8079)
+ERRORS = {}
 casts = Hold("F", 100)
-check("a press while drinking does nothing", casts == 0 and DRANK == 1 and C_Item.GetItemCount(8079) == waterBefore)
+check("pressed too soon, it's not another drink: it says how long the drink has left", casts == 0 and DRANK == 1
+  and C_Item.GetItemCount(8079) == waterBefore and ACTIONS[C.where.slot].kind == "spell" and ErrorWith("Still drinking: 18 seconds left."))
 MANA = 900
 fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
-check("not yet full, still drinking", C.thirst and ACTIONS[C.where.slot] == nil)
-MANA = MANA_MAX
-fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
-check("full again, the conjure spell is back on the button", not C.thirst and ACTIONS[C.where.slot].kind == "spell"
-  and ACTIONS[C.where.slot].id == 10140 and ErrorWith("Mana's full. Hold F to conjure Crystal Water."))
 casts = Hold("F", 3)
-check("and the key conjures again", casts == 3)
+check("with enough mana, the key conjures, whenever you choose", casts == 3)
 C.Disarm()
 check("Ready off, the borrowed button is empty", ACTIONS[C.where.slot] == nil)
+RunTimers(20)
+-- Full before drinking: back to the spell, saying so.
+MANA = 50
+ERRORS = {}
+Click(P.readyButton)
+check("out of mana when Ready lights, the key drinks first", C.thirst and ACTIONS[C.where.slot].kind == "item"
+  and ErrorWith("Out of mana: F drinks Crystal Water next."))
+MANA = MANA_MAX
+fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
+check("full again before a drink, the spell is back", not C.thirst and ACTIONS[C.where.slot].kind == "spell"
+  and ErrorWith("Mana's full. Hold F to conjure Crystal Water."))
+C.Disarm()
 -- Out of mana with no water to drink: it says so, and the spell stays.
 ClearBags()
 MANA = 50
@@ -1253,17 +1267,17 @@ if not BARE then
     and Logged("click: drink Conjured Crystal Water (out of mana)"))
   MANA = 900
   fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
-  check("it keeps drinking until you're full", CB.attributes.type == "item")
-  MANA = MANA_MAX
-  fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
-  check("then it conjures again", CB.attributes.type == "spell" and CB.attributes.spell == 10140)
+  check("until the drink is taken, it stays on the water", CB.attributes.type == "item")
+  RemoveItems(8079, 1) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+  check("once it is, a click conjures again", CB.attributes.type == "spell" and CB.attributes.spell == 10140)
 end
 COSTS[10140] = nil
 MANA, MANA_MAX = 100000, 100000
+RunTimers(20)
 
 -- ---- Mana the addon can't read (as in game, 2026-09-28): the game's own "Not enough mana" ----------
 if C.armed then C.Disarm() end
-C.thirst = nil
+C.thirst, C.drinkUntil = nil, nil
 ClearBags()
 AddItems(8079, 15)
 COSTS[10140] = 100
@@ -1281,30 +1295,26 @@ check("it conjures until the game says not enough mana, then drinking starts", c
   and LoggedSince("out of mana (the game said not enough mana): the key drinks Conjured Crystal Water"), casts)
 check("the water goes on the button once the key is up, and nothing is refused", ACTIONS[C.where.slot] and ACTIONS[C.where.slot].kind == "item"
   and ACTIONS[C.where.slot].id == 8079 and REFUSED_PLACES == 0, REFUSED_PLACES)
-check("and it says the key drinks until the drink is done", ErrorWith("Out of mana: F drinks Crystal Water until the drink is done."))
-UI.Refresh()
-check("the Ready bar says so too", P.readyDetail.text == "Out of mana: F drinks Crystal Water until the drink is done", P.readyDetail.text)
+check("and it says the key drinks next", ErrorWith("Out of mana: F drinks Crystal Water next."))
 local waterBefore2 = C_Item.GetItemCount(8079)
 casts = Hold("F", 100)
-check("the next press drinks, as long as the water says", casts == 0 and C_Item.GetItemCount(8079) == waterBefore2 - 1
-  and LoggedSince("drinking Conjured Crystal Water for 18 seconds"))
+check("the next press drinks, and the drink lasts as long as the water says", casts == 0 and C_Item.GetItemCount(8079) == waterBefore2 - 1
+  and LoggedSince("drinking Conjured Crystal Water for 18 seconds; the spell is back"))
+check("the spell is back at once", C.thirst == nil and ACTIONS[C.where.slot].kind == "spell" and ACTIONS[C.where.slot].id == 10140)
+ERRORS = {}
+RunTimers(5)
+casts = Hold("F", 100)
+check("pressed too soon, no second drink: how long the drink has left", casts == 0 and C_Item.GetItemCount(8079) == waterBefore2 - 1
+  and ACTIONS[C.where.slot].kind == "spell" and ErrorWith("Still drinking: 13 seconds left."))
 MANA = MANA_MAX
-RunTimers(10)
-check("while the drink runs, the key waits for it", C.thirst ~= nil and ACTIONS[C.where.slot] == nil)
-local pressWater = C_Item.GetItemCount(8079)
-check("and a press drinks nothing more", Hold("F", 100) == 0 and C_Item.GetItemCount(8079) == pressWater)
--- A drink taken some other way meanwhile (a macro) doesn't stretch the wait.
-RemoveItems(8079, 1) fire("BAG_UPDATE_DELAYED") RunTimers(0)
-RunTimers(9)
-check("once it has run its 18 seconds, the spell is back", C.thirst == nil and ACTIONS[C.where.slot].kind == "spell"
-  and ACTIONS[C.where.slot].id == 10140 and ErrorWith("Drink done. Hold F to conjure Crystal Water.") and LoggedSince("drinking done: the drink has run its time"))
 casts = Hold("F", 3)
-check("and the key conjures again", casts == 3)
+check("with the mana back, the key conjures whenever you choose", casts == 3)
 C.Disarm()
+RunTimers(20)
 -- A "not enough mana" with nothing drunk lapses after a minute.
 MANA = 50
 fire("UI_ERROR_MESSAGE", LE_GAME_ERR_OUT_OF_MANA, ERR_OUT_OF_MANA) RunTimers(0)
-check("the game's word alone starts drinking, Ready or not", C.thirst ~= nil)
+check("the game's word alone starts wanting a drink, Ready or not", C.thirst ~= nil)
 MANA = MANA_MAX
 RunTimers(62)
 check("with no drink taken, it lapses after a minute", C.thirst == nil and LoggedSince("drinking done: no drink taken for a minute"))
@@ -1322,19 +1332,19 @@ if not BARE then
   local uses = #CLICK_USES
   Click(CB)
   RemoveItems(8079, 1) fire("BAG_UPDATE_DELAYED") RunTimers(0)
-  check("a click drinks, for as long as the water says", #CLICK_USES == uses + 1 and C.thirst and C.thirst.untilTime ~= nil)
-  check("and while it runs a click does nothing", CB.attributes.type == nil and CB.icon.desaturated and CB.waiting)
-  local usesWaiting = #CLICK_USES
-  Click(CB)
-  check("not even another drink", #CLICK_USES == usesWaiting and Logged("click while drinking: nothing until the drink is done"))
+  check("a click drinks, and the next click conjures", #CLICK_USES == uses + 1 and CB.attributes.type == "spell" and C.DrinkLeft() == 18)
+  ERRORS = {}
+  failed = ClickCast(CB)
+  check("clicked too soon: no second drink, how long the drink has left", failed == nil and CB.attributes.type == "spell"
+    and ErrorWith("Still drinking: 18 seconds left."))
   MANA = MANA_MAX
-  RunTimers(19)
-  check("then it conjures again", C.thirst == nil and CB.attributes.type == "spell")
+  check("with the mana back, a click conjures", ClickCast(CB) == 10140)
 end
 MANA_SECRET = nil
 COSTS[10140] = nil
 MANA, MANA_MAX = 100000, 100000
-C.thirst = nil
+C.thirst, C.drinkUntil = nil, nil
+RunTimers(20)
 
 -- ---- Bags full ---------------------------------------------------------------
 ClearBags()

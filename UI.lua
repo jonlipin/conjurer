@@ -1284,7 +1284,7 @@ local function BuildOptions(body)
 		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
 		{ "Drink when you run out of mana", function() return ns.db.drinkWhenOOM end,
 			function(v) ns.db.drinkWhenOOM = v if ns.Conjure.armed then ns.Conjure.Update() end end,
-			"Once a conjure can't be paid for, or the game says Not enough mana, your key (and the click button) drinks your best conjured water, then conjures again once you're full or the drink is done." },
+			"Once a conjure can't be paid for, or the game says Not enough mana, your next press of the key (or click) drinks your best conjured water. As soon as the drink starts it conjures again, whenever you're ready." },
 		{ "Show shares on player tooltips", function() return ns.db.tooltip end, function(v) ns.db.tooltip = v end,
 			"Hovering a friendly player adds what Conjurer would hand them, and whether they've had it." },
 		{ "Tidy conjured stacks in your bags", function() return ns.db.tidy end,

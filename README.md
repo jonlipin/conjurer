@@ -78,10 +78,10 @@ like holding one of your action bar keys.
   fits, a row with no room is passed over, and when nothing fits Ready goes off and says so.
 - **Out of mana**: once the next cast can't be paid for, or the game says "Not enough mana", the
   borrowed button gets your best conjured water instead, so your next press drinks (the game won't
-  let an addon drink by itself). After that one drink the key and the click wait (the Ready bar
-  counts down), so pressing on doesn't drink another water. When you're full again, or the drink is
-  done if this client won't let Conjurer read your mana, the spell comes back and the key conjures. Untick **Drink when you run
-  out of mana** in Options to keep the spell.
+  let an addon drink by itself). As soon as the drink starts the spell is back, so you stand up and
+  conjure whenever you like. The Ready bar counts the drink down, and pressing too soon says how long
+  it has left instead of drinking another water. Untick **Drink when you run out of mana** in Options
+  to keep the spell.
 - When every target is met, Ready switches itself off, the borrowed button is emptied and your key
   goes back to what it normally does.
 - Entering combat switches Ready off at once. A secure state driver also takes the key away the
