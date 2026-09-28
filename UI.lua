@@ -1190,7 +1190,8 @@ local function BuildAnnounce(body)
 	y = y + 26
 	local groupOnly = NewCheck(body, "Only while you're in a group",
 		function() return ns.db.announce.groupOnly end,
-		function(v) ns.db.announce.groupOnly = v ns.Announce.Update() end, nil)
+		function(v) ns.db.announce.groupOnly = v ns.Announce.Update() end,
+		"Off: it stays up on your own too, and then tells the people around you (Say), for a town call for water.")
 	groupOnly:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
 	body.shownCheck, body.groupCheck = shown, groupOnly
 	y = y + 30

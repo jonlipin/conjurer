@@ -3,10 +3,12 @@
 -- you for food and water, with how much of each you have left.
 --
 -- The message is yours to word; {stock} becomes what you have ("120 Crystal Water (55+) and 60
--- Cinnamon Roll (55+)"), {water} and {food} each kind on its own. It goes to the battleground or
--- instance group when you're in one, else the raid, else the party. A click is the only thing
--- that sends it, and not more than once every few seconds. Whether it reached the chat is checked
--- against the chat itself and written to the log.
+-- Cinnamon Roll (55+)"), {water} and {food} each kind on its own, with the items as links people
+-- can shift-click (plain names when the links would make it too long for the chat). It goes to the
+-- battleground or instance group when you're in one, else the raid, else the party, and on your
+-- own, when the button isn't kept to groups, to the people around you (Say). A click is the only
+-- thing that sends it, and not more than once every few seconds. Whether it reached the chat is
+-- checked against the chat itself and written to the log.
 
 local ADDON, ns = ...
 local report = ns.report
@@ -21,7 +23,8 @@ N.preview = false
 N.last = -COOLDOWN
 
 N.DEFAULT_MESSAGE = "Mage food and water here! Trade me for yours. I have {stock}."
-N.CHANNEL_LABEL = { INSTANCE_CHAT = "your battleground or instance group", RAID = "your raid", PARTY = "your party" }
+N.CHANNEL_LABEL = { INSTANCE_CHAT = "your battleground or instance group", RAID = "your raid", PARTY = "your party",
+	SAY = "the people around you (Say)" }
 
 -- Where a group message goes right now, or nil when you're on your own.
 function N.Channel()
@@ -32,26 +35,39 @@ function N.Channel()
 	if IsInRaid and IsInRaid() then return "RAID" end
 	local n = GetNumGroupMembers and ns.Clean(GetNumGroupMembers()) or 0
 	if (IsInGroup and IsInGroup()) or (tonumber(n) or 0) > 0 then return "PARTY" end
+	-- On your own, with the button not kept to groups: whoever is around you.
+	if ns.db and ns.db.announce and not ns.db.announce.groupOnly then return "SAY" end
+	return nil
+end
+
+-- The item as a link people can shift-click, or nil when the client doesn't have it yet.
+local function Link(entry)
+	local fn = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	if not fn then return nil end
+	local ok, _, link = pcall(fn, entry.item)
+	link = ok and ns.Clean(link)
+	if type(link) == "string" and link ~= "" then return link end
 	return nil
 end
 
 -- What you have of one kind, best rank first, with the level each rank needs.
-local function KindText(kind)
+local function KindText(kind, links)
 	local parts = {}
 	local list = ns.KINDS[kind]
 	for r = #list, 1, -1 do
 		local entry = list[r]
 		local n = ns.Count(entry.item)
 		if n > 0 then
-			parts[#parts + 1] = n .. " " .. ns.ShortName(entry) .. (entry.level > 1 and (" (" .. entry.level .. "+)") or "")
+			local name = (links and Link(entry)) or ns.ShortName(entry)
+			parts[#parts + 1] = n .. " " .. name .. (entry.level > 1 and (" (" .. entry.level .. "+)") or "")
 		end
 	end
 	if #parts == 0 then return nil end
 	return table.concat(parts, ", ")
 end
 
-function N.Stock()
-	local water, food = KindText("water"), KindText("food")
+function N.Stock(links)
+	local water, food = KindText("water", links), KindText("food", links)
 	local stock
 	if water and food then
 		stock = water .. " and " .. food
@@ -61,19 +77,31 @@ function N.Stock()
 	return stock, water, food
 end
 
--- The message as it would go out now, or nil when there is nothing to offer.
-function N.Message()
-	local stock, water, food = N.Stock()
+local function Fill(template, links)
+	local stock, water, food = N.Stock(links)
 	if not stock then return nil end
-	local template = ns.db.announce.message
-	if type(template) ~= "string" or template:gsub("%s", "") == "" then template = N.DEFAULT_MESSAGE end
 	local text = template
 	text = text:gsub("{stock}", function() return stock end)
 	text = text:gsub("{water}", function() return water or "no water" end)
 	text = text:gsub("{food}", function() return food or "no food" end)
-	text = text:gsub("[\r\n]+", " ")
+	return (text:gsub("[\r\n]+", " "))
+end
+
+-- The message as it would go out now, or nil when there is nothing to offer.
+function N.Message()
+	local template = ns.db.announce.message
+	if type(template) ~= "string" or template:gsub("%s", "") == "" then template = N.DEFAULT_MESSAGE end
+	local text = Fill(template, true)
+	if not text then return nil end
+	-- A cut link would break the message: too long with links, it goes with plain names.
+	if #text > MAX_LENGTH then text = Fill(template, false) end
 	if #text > MAX_LENGTH then text = text:sub(1, MAX_LENGTH - 3) .. "..." end
 	return text
+end
+
+-- The words of a message with its links taken out, for matching what the chat shows.
+local function Plain(text)
+	return (tostring(text):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"))
 end
 
 function N.Send()
@@ -216,10 +244,11 @@ end
 
 -- The chat itself says whether the message went out.
 local CHAT_EVENTS = { "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER",
-	"CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER" }
+	"CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER", "CHAT_MSG_SAY" }
 for _, event in ipairs(CHAT_EVENTS) do
 	ns.On(event, function(text)
-		if N.lastText and ns.Clean(text) == N.lastText then
+		text = ns.Clean(text)
+		if N.lastText and text and Plain(text) == Plain(N.lastText) then
 			ns.Log("announce seen in chat (" .. event .. ")")
 			report["last announce"] = (report["last announce"] or "") .. ", seen in chat"
 			N.lastText = nil

@@ -299,6 +299,12 @@ C_Item = {
   end,
 }
 ITEM_NAMES = {}
+-- With ITEM_LINKS set the client has item links ready, the way it does for what is in your bags.
+C_Item.GetItemInfo = function(id)
+  if not ITEM_LINKS then return nil end
+  local name = ITEM_NAMES[id] or (NS and NS.BY_ITEM[id] and NS.BY_ITEM[id].name) or ("Item " .. id)
+  return name, "|cffffffff|Hitem:" .. id .. "::::::::60:::::|h[" .. name .. "]|h|r"
+end
 
 -- Mana. A spell costs COSTS[id] (none when unset); a cast needs it at the start and spends it at the end.
 MANA, MANA_MAX = 100000, 100000
@@ -2144,7 +2150,24 @@ check("with Only while you're in a group off, it stays up alone", ns.db.announce
 RunTimers(11)
 before = #SENT
 Click(ConjurerAnnounce)
-check("but alone there's no one to tell", #SENT == before and ChatWith("You're not in a party, raid or battleground") == 1)
+check("alone, it tells the people around you (Say)", #SENT == before + 1 and SENT[#SENT].channel == "SAY")
+fire("CHAT_MSG_SAY", SENT[#SENT].text, "Vatik") RunTimers(0)
+check("and checks Say for it too", table.concat(ConjurerLog.entries, "\n"):find("announce seen in chat (CHAT_MSG_SAY)", 1, true) ~= nil)
+-- Links people can shift-click.
+ITEM_LINKS = true
+RunTimers(11)
+before = #SENT
+Click(ConjurerAnnounce)
+local sentText = SENT[#SENT] and SENT[#SENT].text or ""
+check("the items go out as links people can shift-click", #SENT == before + 1
+  and sentText:find("45 |cffffffff|Hitem:8079::::::::60:::::|h[Conjured Crystal Water]|h|r (55+)", 1, true) ~= nil, sentText)
+fire("CHAT_MSG_SAY", (sentText:gsub("::::::::60:::::", ":0:0:0:0:0:0:0:60")), "Vatik") RunTimers(0)
+check("and it is still recognised in the chat when the links come back a little different",
+  select(2, table.concat(ConjurerLog.entries, "\n"):gsub("announce seen in chat %(CHAT_MSG_SAY%)", "")) == 2)
+ns.db.announce.message = string.rep("a", 200) .. " {stock}"
+check("too long with links, it goes with plain names", An.Message() == string.rep("a", 200) .. " 45 Crystal Water (55+)", An.Message())
+ns.db.announce.message = nil
+ITEM_LINKS = nil
 Click(AB.groupCheck)
 Click(AB.shownCheck)
 check("switched off, it goes", not ConjurerAnnounce.shown)
