@@ -832,6 +832,72 @@ ns.On("GROUP_LEFT", function()
 	ns.Refresh()
 end)
 
+-- ------------------------------------------------------------------
+-- Player tooltips
+--
+-- Hovering a friendly player shows what Conjurer would hand them, at the rank they can use, and
+-- whether they've had it: group members as the Group section has them, anyone else as a stranger.
+-- ------------------------------------------------------------------
+
+local function TooltipUnit(tooltip, data)
+	local guid = type(data) == "table" and ns.Clean(data.guid)
+	if guid and UnitTokenFromGUID then
+		local ok, unit = pcall(UnitTokenFromGUID, guid)
+		unit = ok and ns.Clean(unit)
+		if type(unit) == "string" then return unit end
+	end
+	if tooltip and tooltip.GetUnit then
+		local ok, _, unit = pcall(tooltip.GetUnit, tooltip)
+		unit = ok and ns.Clean(unit)
+		if type(unit) == "string" then return unit end
+	end
+	return nil
+end
+
+-- The line for a unit's tooltip, or nil when there's nothing to say.
+function T.TooltipLine(unit)
+	if not (ns.db and ns.db.tooltip and ns.isMage) then return nil end
+	if not (UnitIsPlayer and ns.Clean(UnitIsPlayer(unit))) then return nil end
+	if UnitIsUnit(unit, "player") then return nil end
+	if UnitIsFriend and not ns.Clean(UnitIsFriend("player", unit)) then return nil end
+	local guid = ns.Clean(UnitGUID(unit))
+	if not guid then return nil end
+	local m = T.MemberByGuid(guid)
+	if not m then
+		local _, class = UnitClass(unit)
+		local level = ns.Clean(UnitLevel(unit))
+		m = { unit = unit, guid = guid, name = ns.Clean(UnitName(unit)) or "?", class = ns.Clean(class),
+			level = (type(level) == "number" and level > 0) and level or nil, stranger = true }
+	end
+	local share = T.ShareText(m)
+	if share == "nothing" then return nil end
+	local line = "Conjurer: " .. share
+	if T.Handed(guid) then
+		local left = T.HandedMinutesLeft(guid)
+		line = line .. " (handed out" .. (left and (", " .. left .. "m left") or "") .. ")"
+	end
+	return line
+end
+
+local function AddToTooltip(tooltip, data)
+	if tooltip ~= GameTooltip then return end
+	local unit = TooltipUnit(tooltip, data)
+	if not unit then return end
+	local ok, line = pcall(T.TooltipLine, unit)
+	if ok and line then tooltip:AddLine(line, 0.25, 0.78, 0.92) end
+end
+
+if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType
+	and Enum.TooltipDataType.Unit then
+	pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, ns.Guard("player tooltip", AddToTooltip))
+	report["player tooltips"] = "TooltipDataProcessor"
+elseif GameTooltip and GameTooltip.HookScript then
+	pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", ns.Guard("player tooltip", AddToTooltip))
+	report["player tooltips"] = "OnTooltipSetUnit"
+else
+	report["player tooltips"] = "no way to hook them on this client"
+end
+
 ns.debugSources[#ns.debugSources + 1] = function()
 	local handed = 0
 	for _ in pairs(ns.db and ns.db.handed or {}) do handed = handed + 1 end

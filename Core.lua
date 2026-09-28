@@ -124,6 +124,7 @@ local DEFAULTS = {
 	drinkWhenOOM = true,
 	tidy = true,
 	tradeConjure = true,
+	tooltip = true,
 	strangers = { water = 20, food = 20, autoFill = false },
 }
 

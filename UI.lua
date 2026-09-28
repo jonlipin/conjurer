@@ -1285,6 +1285,8 @@ local function BuildOptions(body)
 		{ "Drink when you run out of mana", function() return ns.db.drinkWhenOOM end,
 			function(v) ns.db.drinkWhenOOM = v if ns.Conjure.armed then ns.Conjure.Update() end end,
 			"Once a conjure can't be paid for, your key (and the click button) drinks your best conjured water until you're full, then conjures again." },
+		{ "Show shares on player tooltips", function() return ns.db.tooltip end, function(v) ns.db.tooltip = v end,
+			"Hovering a friendly player adds what Conjurer would hand them, and whether they've had it." },
 		{ "Tidy conjured stacks in your bags", function() return ns.db.tidy end,
 			function(v) ns.db.tidy = v if v then ns.Bags.TidySoon() end end,
 			"Merges loose stacks of conjured food and water into whole ones, out of combat, while you're not conjuring, trading or casting." },

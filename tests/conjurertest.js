@@ -216,6 +216,7 @@ function GetInstanceInfo() local i = INSTANCE or {} return "Somewhere", i.kind o
 UIParent = obj("Frame") UIParent.w, UIParent.h = 1920, 1080
 Minimap = obj("Frame") Minimap.w, Minimap.h = 140, 140
 GameTooltip = obj("GameTooltip")
+GameTooltip.AddLine = function(s, text) TIP_LINES[#TIP_LINES + 1] = text end
 CHAT = {}
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) CHAT[#CHAT + 1] = m if VERBOSE then print(m) end end }
 ERRORS = {}
@@ -299,6 +300,13 @@ C_Item = {
   end,
 }
 ITEM_NAMES = {}
+-- Tooltips: post-calls by data type, and what the hovered tooltip says.
+Enum = { TooltipDataType = { Item = 0, Spell = 1, Unit = 2 } }
+TOOLTIP_CALLS, TIP_LINES = {}, {}
+TooltipDataProcessor = { AddTooltipPostCall = function(kind, fn) TOOLTIP_CALLS[#TOOLTIP_CALLS + 1] = { kind = kind, fn = fn } end }
+function UnitTokenFromGUID(guid) if HOVER_UNIT and UnitGUID(HOVER_UNIT) == guid then return HOVER_UNIT end end
+function UnitIsPlayer(unit) return unit == "player" or MemberFor(unit) ~= nil end
+function UnitIsFriend() return true end
 -- With ITEM_LINKS set the client has item links ready, the way it does for what is in your bags.
 C_Item.GetItemInfo = function(id)
   if not ITEM_LINKS then return nil end
@@ -1756,6 +1764,31 @@ TradeCancel() RunTimers(1)
 ns.db.tradeConjure = true
 ConjureDuringTrade()
 check("and with no trade open nothing happens", next(TRADE) == nil)
+
+-- Player tooltips: what Conjurer would hand them.
+local function Hover(unit)
+  TIP_LINES = {}
+  HOVER_UNIT = unit
+  for _, c in ipairs(TOOLTIP_CALLS) do if c.kind == Enum.TooltipDataType.Unit then c.fn(GameTooltip, { guid = UnitGUID(unit) }) end end
+  HOVER_UNIT = nil
+  return table.concat(TIP_LINES, "\n")
+end
+check("player tooltips are hooked the client's way", ns.report["player tooltips"] == "TooltipDataProcessor")
+ns.db.handed["Player-70-E1"] = nil
+check("a group member's tooltip shows their share", Hover("party1") == "Conjurer: 40 Crystal Water, 20 Cinnamon Roll", Hover("party1"))
+ns.db.handed["Player-70-E1"] = { water = 40, food = 20, name = "Elyse", t = time() }
+check("and once handed out, how long until it's forgotten", Hover("party1") == "Conjurer: 40 Crystal Water, 20 Cinnamon Roll (handed out, 30m left)", Hover("party1"))
+ns.db.handed["Player-70-E1"] = nil
+TRADE_PARTNER = "Player-70-STRANGER"
+check("a stranger's shows theirs, up to the amounts for strangers", Hover("NPC") == "Conjurer: 20 Cinnamon Roll", Hover("NPC"))
+STRANGER.class = "PRIEST"
+check("a priest stranger gets 20 water, not a priest's 40", Hover("NPC") == "Conjurer: 20 Crystal Water, 20 Cinnamon Roll", Hover("NPC"))
+STRANGER.class = "MAGE"
+check("someone with no share gets no line", Hover("NPC") == "")
+STRANGER.class = "WARRIOR"
+ns.db.tooltip = false
+check("and none at all with the option off", Hover("party1") == "")
+ns.db.tooltip = true
 
 -- Reset and leaving the group.
 Click(P.sections.group.action)
