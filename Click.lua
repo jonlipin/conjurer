@@ -66,18 +66,15 @@ end
 -- ------------------------------------------------------------------
 
 -- Out of mana for the next cast, a click drinks your best water instead, until you're full.
+-- (Ready and the click button share it: see Drinking in Conjure.lua.)
 local function Drinking(row)
-	if not (row and ns.db.drinkWhenOOM) then
-		K.drinking = nil
-		return nil
-	end
+	if not (row and ns.db.drinkWhenOOM) then return nil end
 	local C = ns.Conjure
-	if K.drinking and (C.ManaFull() or ns.Count(K.drinking.item) == 0) then K.drinking = nil end
-	if not K.drinking and C.ShortOfMana(row, inflight and 2 or 1) then
-		K.drinking = C.DrinkEntry()
-		if K.drinking then ns.Log("click: out of mana for " .. row.name .. ", so a click drinks " .. K.drinking.name) end
+	local drink = C.Thirsty()
+	if not drink and C.ShortOfMana(row, inflight and 2 or 1) then
+		drink = C.StartThirst("not enough for " .. row.name .. ", seen by the click button")
 	end
-	return K.drinking
+	return drink
 end
 
 local function Paint(b, next, drink, full)

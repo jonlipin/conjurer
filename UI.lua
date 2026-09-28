@@ -511,7 +511,7 @@ local function BuildReadyBar()
 		"Click, then press the key (or a side mouse button) you want to hold to conjure. Conjurer only uses it while Ready is lit; the rest of the time it does whatever you have it bound to. Escape cancels.")
 
 	-- Conjuring by click instead: one cast per click, no key and no Ready needed.
-	clickButton = ns.Click.Make("ConjurerClickButton", frame, 40)
+	clickButton = ns.Click and ns.Click.Make("ConjurerClickButton", frame, 40)
 	if clickButton then
 		clickButton:SetPoint("TOPRIGHT", keyButton, "TOPLEFT", -18, 4)
 		local clickHint = Text(frame, "GameFontDisableSmall")
@@ -1284,11 +1284,11 @@ local function BuildOptions(body)
 		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
 		{ "Drink when you run out of mana", function() return ns.db.drinkWhenOOM end,
 			function(v) ns.db.drinkWhenOOM = v if ns.Conjure.armed then ns.Conjure.Update() end end,
-			"Once a conjure can't be paid for, your key (and the click button) drinks your best conjured water until you're full, then conjures again." },
+			"Once a conjure can't be paid for, or the game says Not enough mana, your key (and the click button) drinks your best conjured water, then conjures again once you're full or the drink is done." },
 		{ "Show shares on player tooltips", function() return ns.db.tooltip end, function(v) ns.db.tooltip = v end,
 			"Hovering a friendly player adds what Conjurer would hand them, and whether they've had it." },
 		{ "Tidy conjured stacks in your bags", function() return ns.db.tidy end,
-			function(v) ns.db.tidy = v if v then ns.Bags.TidySoon() end end,
+			function(v) ns.db.tidy = v if v and ns.Bags then ns.Bags.TidySoon() end end,
 			"Merges loose stacks of conjured food and water into whole ones, out of combat, while you're not conjuring, trading or casting." },
 		{ "Conjure for your group's size", function() return ns.db.profileAuto end,
 			function(v)

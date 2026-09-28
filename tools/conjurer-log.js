@@ -9,7 +9,7 @@
 //
 //   node tools/conjurer-log.js                 the latest session, and the latest debug report
 //   node tools/conjurer-log.js --last 300      the last 300 lines, across sessions
-//   node tools/conjurer-log.js --session all   every session kept (the log keeps 800 lines)
+//   node tools/conjurer-log.js --session all   every session kept (the log keeps 1500 lines)
 //   node tools/conjurer-log.js --session 12    one session
 //   node tools/conjurer-log.js --db            each character's Conjurer settings as well
 //   node tools/conjurer-log.js --json          everything as JSON

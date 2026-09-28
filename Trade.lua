@@ -258,7 +258,10 @@ end
 -- Bags and the trade window
 -- ------------------------------------------------------------------
 
-local SlotInfo, Stacks, FreeBagSlot = ns.Bags.SlotInfo, ns.Bags.Stacks, ns.Bags.FreeBagSlot
+-- Looked up when used, so this file still loads when Bags.lua isn't (an update needing a restart).
+local function SlotInfo(...) return ns.Bags and ns.Bags.SlotInfo(...) end
+local function Stacks(...) return ns.Bags and ns.Bags.Stacks(...) or {} end
+local function FreeBagSlot(...) if ns.Bags then return ns.Bags.FreeBagSlot(...) end end
 
 -- One slot of our side of the trade window: nil when empty, else the item id (nil if unreadable)
 -- and the count.

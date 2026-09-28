@@ -3,7 +3,7 @@
 ## 1.1.0 - 2026-09-28
 
 - Conjure by click: a button on the Ready bar and one on the low alert conjure with a click, one cast per click, no Ready or key needed. It always holds the next row short of its target, and on the alert, once every target is met, whatever the alert shows as low. (Holding the mouse down conjures once: the game repeats a held cast only for a key. A side mouse button can be your key.)
-- Out of mana: once the next cast can't be paid for, your key (and the click button) drinks your best conjured water until you're full, then conjures again. Can be switched off in Options.
+- Out of mana: once the next cast can't be paid for, or the game says "Not enough mana", your key (and the click button) drinks your best conjured water, then conjures again once you're full or the drink is done. The game won't let an addon drink by itself, so it's your next press that drinks. Can be switched off in Options.
 - Bags full: each cast checks that the next one fits. The hold ends on the last cast that fits, a row with no room is passed over, and Ready goes off saying the bags are full instead of wasting casts.
 - Loose stacks of conjured food and water are tidied into whole ones, out of combat, when you're not conjuring, trading or casting.
 - Under the trade window: + Water and + Food add a stack of your best conjured water or food they can use, your fullest first, and Clear takes it all back out.

@@ -211,7 +211,7 @@ local function Build()
 	for _, kind in ipairs(ns.KIND_ORDER) do Icon({ key = kind, kind = kind }) end
 	-- Conjures by click, one cast each: the next row short of its target, or when every target is met,
 	-- whatever the alert shows as low.
-	conjureButton = ns.Click.Make("ConjurerAlertConjure", holder, SIZE, function()
+	conjureButton = ns.Click and ns.Click.Make("ConjurerAlertConjure", holder, SIZE, function()
 		for _, e in ipairs(Entries()) do
 			if e.canShow and e.low then return e.gem or e.entry end
 		end

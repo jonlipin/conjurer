@@ -317,9 +317,17 @@ end
 -- Mana. A spell costs COSTS[id] (none when unset); a cast needs it at the start and spends it at the end.
 MANA, MANA_MAX = 100000, 100000
 COSTS = {}
-function UnitPower(unit) if unit == "player" then return MANA end return 0 end
+-- MANA_SECRET: the client hands addons the player's mana as a secret value, as SecretWhenUnitPowerRestricted allows.
+SECRETS = SECRETS or {}
+SECRET_MANA = {}
+SECRETS[SECRET_MANA] = true
+function UnitPower(unit) if unit == "player" then if MANA_SECRET then return SECRET_MANA end return MANA end return 0 end
+LE_GAME_ERR_OUT_OF_MANA, ERR_OUT_OF_MANA = 44, "Not enough mana"
+-- Every conjured water drinks through the spell Drink, which lasts as long as its words say.
+C_Item.GetItemSpell = function(id) if NS and NS.BY_ITEM[id] and NS.BY_ITEM[id].kind == "water" then return "Drink", 432 end end
+C_Spell.GetSpellDescription = function(id) if id == 432 then return "Restores 436 mana over 18 sec." end end
 function UnitPowerMax(unit) if unit == "player" then return MANA_MAX end return 0 end
-C_Spell.GetSpellPowerCost = function(id) local c = COSTS[id] if not c then return {} end return { { type = 0, name = "MANA", cost = c, minCost = c } } end
+C_Spell.GetSpellPowerCost = function(id) local c = COSTS[id] if not c then return {} end return { { type = 0, name = "MANA", cost = c, minCost = 0 } } end
 -- An item picked up by id, the way an action button takes one.
 C_Item.PickupItem = function(id) if C_Item.GetItemCount(id) > 0 then CURSOR = { kind = "item", id = id } end end
 function RemoveItems(item, n)
@@ -749,6 +757,7 @@ function Hold(key, max)
     CAST_N = CAST_N + 1
     local guid = "Cast-" .. CAST_N
     if (COSTS[spell] or 0) > MANA then
+      fire("UI_ERROR_MESSAGE", LE_GAME_ERR_OUT_OF_MANA, ERR_OUT_OF_MANA) RunTimers(0)
       fire("UNIT_SPELLCAST_FAILED", "player", guid, spell) RunTimers(0)
       break
     end
@@ -819,6 +828,11 @@ function ClickCast(button, later)
   if not spell then return nil end
   CAST_N = CAST_N + 1
   local guid = "Cast-" .. CAST_N
+  if (COSTS[spell] or 0) > MANA then
+    fire("UI_ERROR_MESSAGE", LE_GAME_ERR_OUT_OF_MANA, ERR_OUT_OF_MANA) RunTimers(0)
+    fire("UNIT_SPELLCAST_FAILED", "player", guid, spell) RunTimers(0)
+    return nil
+  end
   CASTING = true
   fire("UNIT_SPELLCAST_START", "player", guid, spell) RunTimers(0)
   CASTING = false
@@ -1189,7 +1203,7 @@ ns.Profile().food[7] = 0
 Click(P.readyButton)
 casts = Hold("F", 100)
 check("with mana for two casts, the hold ends after the second and the key drinks", casts == 2 and C.armed
-  and C.drinking == ns.WATER[7] and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].kind == "item" and ACTIONS[C.where.slot].id == 8079, casts)
+  and C.thirst and C.thirst.entry == ns.WATER[7] and ACTIONS[C.where.slot] and ACTIONS[C.where.slot].kind == "item" and ACTIONS[C.where.slot].id == 8079, casts)
 check("it says so", ErrorWith("Out of mana after this cast: F drinks Crystal Water until you're full."))
 check("the water went on the button while a cast was going, so nothing was refused", REFUSED_PLACES == 0, REFUSED_PLACES)
 local waterBefore = C_Item.GetItemCount(8079)
@@ -1198,10 +1212,10 @@ check("the next press drinks your best water", casts == 0 and DRANK == 1 and C_I
 check("the Ready bar says the key drinks", P.readyDetail.text == "Out of mana: F drinks Crystal Water until you're full", P.readyDetail.text)
 MANA = 900
 fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
-check("not yet full, the key still drinks", C.drinking and ACTIONS[C.where.slot].kind == "item")
+check("not yet full, the key still drinks", C.thirst and ACTIONS[C.where.slot].kind == "item")
 MANA = MANA_MAX
 fire("UNIT_POWER_UPDATE", "player", "MANA") RunTimers(0)
-check("full again, the conjure spell is back on the button", not C.drinking and ACTIONS[C.where.slot].kind == "spell"
+check("full again, the conjure spell is back on the button", not C.thirst and ACTIONS[C.where.slot].kind == "spell"
   and ACTIONS[C.where.slot].id == 10140 and ErrorWith("Mana's full. Hold F to conjure Crystal Water."))
 casts = Hold("F", 3)
 check("and the key conjures again", casts == 3)
@@ -1212,14 +1226,14 @@ ClearBags()
 MANA = 50
 ERRORS = {}
 Click(P.readyButton)
-check("out of mana with no water, it says so and keeps the spell", C.armed and not C.drinking
+check("out of mana with no water, it says so and keeps the spell", C.armed and not C.thirst
   and ErrorWith("Out of mana, and no conjured water to drink.") and ACTIONS[C.where.slot].id == 10140)
 C.Disarm()
 -- Drinking switched off.
 AddItems(8079, 15)
 ns.db.drinkWhenOOM = false
 Click(P.readyButton)
-check("with drinking off, the key keeps the spell", C.armed and not C.drinking and ACTIONS[C.where.slot].kind == "spell")
+check("with drinking off, the key keeps the spell", C.armed and not C.thirst and ACTIONS[C.where.slot].kind == "spell")
 C.Disarm()
 ns.db.drinkWhenOOM = true
 -- The click button drinks too.
@@ -1241,6 +1255,73 @@ if not BARE then
 end
 COSTS[10140] = nil
 MANA, MANA_MAX = 100000, 100000
+
+-- ---- Mana the addon can't read (as in game, 2026-09-28): the game's own "Not enough mana" ----------
+if C.armed then C.Disarm() end
+C.thirst = nil
+ClearBags()
+AddItems(8079, 15)
+COSTS[10140] = 100
+MANA_MAX, MANA = 1000, 250
+MANA_SECRET = true
+REFUSED_PLACES = 0
+ERRORS = {}
+logMark = #ConjurerLog.entries
+ns.Profile().water[7] = 100
+ns.Profile().food[7] = 0
+Click(P.readyButton)
+check("with mana it can't read, Ready can't tell ahead and says so in the log", C.armed and LoggedSince("can't tell whether you're out of mana: mana nil/1000"))
+casts = Hold("F", 100)
+check("it conjures until the game says not enough mana, then drinking starts", casts == 2 and C.thirst ~= nil
+  and LoggedSince("out of mana (the game said not enough mana): the key drinks Conjured Crystal Water"), casts)
+check("the water goes on the button once the key is up, and nothing is refused", ACTIONS[C.where.slot] and ACTIONS[C.where.slot].kind == "item"
+  and ACTIONS[C.where.slot].id == 8079 and REFUSED_PLACES == 0, REFUSED_PLACES)
+check("and it says the key drinks until the drink is done", ErrorWith("Out of mana: F drinks Crystal Water until the drink is done."))
+UI.Refresh()
+check("the Ready bar says so too", P.readyDetail.text == "Out of mana: F drinks Crystal Water until the drink is done", P.readyDetail.text)
+local waterBefore2 = C_Item.GetItemCount(8079)
+casts = Hold("F", 100)
+check("the next press drinks, as long as the water says", casts == 0 and C_Item.GetItemCount(8079) == waterBefore2 - 1
+  and LoggedSince("drinking Conjured Crystal Water for 18 seconds"))
+MANA = MANA_MAX
+RunTimers(10)
+check("while the drink runs, the key still drinks", C.thirst ~= nil and ACTIONS[C.where.slot].kind == "item")
+RunTimers(9)
+check("once it has run its 18 seconds, the spell is back", C.thirst == nil and ACTIONS[C.where.slot].kind == "spell"
+  and ACTIONS[C.where.slot].id == 10140 and ErrorWith("Hold F to conjure Crystal Water.") and LoggedSince("drinking done: the drink has run its time"))
+casts = Hold("F", 3)
+check("and the key conjures again", casts == 3)
+C.Disarm()
+-- A "not enough mana" with nothing drunk lapses after a minute.
+MANA = 50
+fire("UI_ERROR_MESSAGE", LE_GAME_ERR_OUT_OF_MANA, ERR_OUT_OF_MANA) RunTimers(0)
+check("the game's word alone starts drinking, Ready or not", C.thirst ~= nil)
+MANA = MANA_MAX
+RunTimers(62)
+check("with no drink taken, it lapses after a minute", C.thirst == nil and LoggedSince("drinking done: no drink taken for a minute"))
+-- Another spell's refusal for something else doesn't count.
+fire("UI_ERROR_MESSAGE", 99, "Out of range.") RunTimers(0)
+check("other errors don't start drinking", C.thirst == nil)
+-- The click button, the same way.
+if not BARE then
+  local CB = P.clickButton
+  MANA = 50
+  ns.Refresh() RunTimers(0)
+  check("the click button can't tell ahead either, so it shows the conjure", CB.attributes.type == "spell")
+  local failed = ClickCast(CB)
+  check("a click the game refuses for mana makes it drink", failed == nil and CB.attributes.type == "item" and CB.attributes.item == "item:8079")
+  local uses = #CLICK_USES
+  Click(CB)
+  RemoveItems(8079, 1) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+  check("a click drinks, for as long as the water says", #CLICK_USES == uses + 1 and C.thirst and C.thirst.untilTime ~= nil)
+  MANA = MANA_MAX
+  RunTimers(19)
+  check("then it conjures again", C.thirst == nil and CB.attributes.type == "spell")
+end
+MANA_SECRET = nil
+COSTS[10140] = nil
+MANA, MANA_MAX = 100000, 100000
+C.thirst = nil
 
 -- ---- Bags full ---------------------------------------------------------------
 ClearBags()
@@ -2354,8 +2435,8 @@ HANDLED = nil
 ERROR_HANDLER("SomeOtherAddon.lua:3: oops")
 check("other addons' errors are passed on and not logged", HANDLED == "SomeOtherAddon.lua:3: oops"
   and not ConjurerLog.entries[#ConjurerLog.entries]:find("oops", 1, true))
-for i = 1, 900 do ns.Log("filler " .. i) end
-check("the log keeps its last 800 lines", #ConjurerLog.entries == 800 and ConjurerLog.entries[800]:find("filler 900", 1, true) ~= nil)
+for i = 1, 1600 do ns.Log("filler " .. i) end
+check("the log keeps its last 1500 lines", #ConjurerLog.entries == 1500 and ConjurerLog.entries[1500]:find("filler 1600", 1, true) ~= nil)
 SV_TEXT = DumpSV("ConjurerLog", ConjurerLog)
 
 -- A reload while Ready was lit: the next login puts the settings back.
@@ -2575,12 +2656,12 @@ let svText = null;
   fs.writeFileSync(tmp, svText || '');
   const data = parseSavedVariables(svText || '');
   const log = data.ConjurerLog || {};
-  check('the reader parses it', Array.isArray(log.entries) && log.entries.length === 800, log.entries && log.entries.length);
+  check('the reader parses it', Array.isArray(log.entries) && log.entries.length === 1500, log.entries && log.entries.length);
   check('with the session number', log.session === 1);
   check('and the report', Array.isArray(log.report) && /^Conjurer 1\.1\.0 debug report/.test(log.report[0]));
   const { execFileSync } = require('child_process');
   const out = execFileSync(process.execPath, [DIR + 'tools/conjurer-log.js', '--file', tmp, '--last', '5'], { encoding: 'utf8' });
-  check('the command prints the file and the lines', out.includes('Conjurer log: ' + tmp) && out.includes('filler 900') && out.includes('--- debug report'));
+  check('the command prints the file and the lines', out.includes('Conjurer log: ' + tmp) && out.includes('filler 1600') && out.includes('--- debug report'));
   const json = JSON.parse(execFileSync(process.execPath, [DIR + 'tools/conjurer-log.js', '--file', tmp, '--json'], { encoding: 'utf8' }));
   check('and JSON when asked', json.log && json.log.session === 1);
   // Strings the client escapes come back whole.

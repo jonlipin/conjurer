@@ -166,7 +166,7 @@ end
 -- /reload, and the whole story is on disk. /conjure note <text> marks a moment in it.
 -- ------------------------------------------------------------------
 
-local LOG_MAX = 800
+local LOG_MAX = 1500
 local early = {}
 
 local function Stamp()
@@ -628,6 +628,18 @@ ns.On("PLAYER_LOGIN", function()
 	ns.Log("session start: Conjurer " .. ns.version .. ", client " .. tostring(build) .. "." .. tostring(number) .. ", "
 		.. tostring(ns.Clean(UnitName("player"))) .. " " .. tostring(class) .. " " .. tostring(ns.Clean(UnitLevel("player"))))
 	ns.Stage("login")
+	-- A file an update added is only read when the game starts: after an update installed with the
+	-- game running, /reload loads the changed files but not the new ones.
+	local missing = {}
+	for _, part in ipairs({ { "Bags", "Bags.lua" }, { "Click", "Click.lua" } }) do
+		if not ns[part[1]] then missing[#missing + 1] = part[2] end
+	end
+	if #missing > 0 then
+		report["files"] = "not loaded: " .. table.concat(missing, ", ")
+		ns.Log("files not loaded: " .. table.concat(missing, ", ") .. " (updated with the game running)")
+		ns.Print("Conjurer was updated while the game was running. Exit the game and start it again to finish: "
+			.. table.concat(missing, " and ") .. (#missing == 1 and " isn't" or " aren't") .. " loaded yet.")
+	end
 	ns.SeedTargets()
 	ns.FollowGroup(true)
 	for _, module in ipairs({ ns.Conjure, ns.Trade, ns.Macro, ns.UI, ns.Alert, ns.Announce, ns.Minimap }) do
