@@ -1954,7 +1954,7 @@ SlashCmdList.CONJURER("ready")
 check("/conjure ready works too", C.armed)
 SlashCmdList.CONJURER("ready")
 SlashCmdList.CONJURER("debug")
-check("/conjure debug prints the report", ChatWith("Conjurer 1.0.0 debug report") == 1 and ChatWith("refused actions: none") == 1)
+check("/conjure debug prints the report", ChatWith("Conjurer 1.1.0 debug report") == 1 and ChatWith("refused actions: none") == 1)
 check("the report names the borrowed button", ChatWith("button to borrow: Action Bar") == 1)
 check("nothing was refused in the whole run", #ns.refused == 0)
 fire("ADDON_ACTION_FORBIDDEN", "Conjurer", "UNKNOWN()")
@@ -2315,7 +2315,7 @@ local L = ConjurerLog
 local all = table.concat(L.entries, "\n")
 check("the log is an account-wide saved variable", type(L) == "table" and type(L.entries) == "table" and L.session == 1)
 check("lines carry the session and the time", L.entries[1]:match("^#1 %d%d:%d%d:%d%d ") ~= nil, L.entries[1])
-check("it starts with the session", all:find("session start: Conjurer 1.0.0, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
+check("it starts with the session", all:find("session start: Conjurer 1.1.0, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
 check("it has the window's templates", all:find("window built: window template ButtonFrameTemplate", 1, true) ~= nil)
 check("it has Ready being lit", all:find("Ready is lit; hold to cast on", 1, true) ~= nil)
 check("it has the binding", all:find("bind F -> MULTIACTIONBAR7BUTTON12", 1, true) ~= nil)
@@ -2577,7 +2577,7 @@ let svText = null;
   const log = data.ConjurerLog || {};
   check('the reader parses it', Array.isArray(log.entries) && log.entries.length === 800, log.entries && log.entries.length);
   check('with the session number', log.session === 1);
-  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.0\.0 debug report/.test(log.report[0]));
+  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.1\.0 debug report/.test(log.report[0]));
   const { execFileSync } = require('child_process');
   const out = execFileSync(process.execPath, [DIR + 'tools/conjurer-log.js', '--file', tmp, '--last', '5'], { encoding: 'utf8' });
   check('the command prints the file and the lines', out.includes('Conjurer log: ' + tmp) && out.includes('filler 900') && out.includes('--- debug report'));
@@ -2611,8 +2611,8 @@ let svText = null;
   const field = (text, name) => { const m = new RegExp('^## ' + name + ': *(.*)$', 'm').exec(text || ''); return m ? m[1].trim() : null; };
   check('the TOC is for this client', field(toc, 'Interface') === '16001');
   check('titled Conjurer', field(toc, 'Title') === 'Conjurer');
-  check('version 1.0.0', field(toc, 'Version') === '1.0.0');
-  check('the version matches the code', /ns\.version = "1\.0\.0"/.test(sources['Core.lua']));
+  check('version 1.1.0', field(toc, 'Version') === '1.1.0');
+  check('the version matches the code', /ns\.version = "1\.1\.0"/.test(sources['Core.lua']));
   check('per-character saved variables', field(toc, 'SavedVariablesPerCharacter') === 'ConjurerDB');
   const listed = toc.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('#')).map(l => l.trim());
   check('the TOC lists the XML and every Lua file in order', listed.join(',') === ['Conjurer.xml'].concat(files).join(','), listed.join(','));
@@ -2624,7 +2624,7 @@ let svText = null;
   const changelog = (read('CHANGELOG.md') || '').replace(/\r\n/g, '\n');
   const notes = (read('RELEASE-NOTES.md') || '').replace(/\r\n/g, '\n');
   const top = changelog.split(/\n(?=## )/).find(s => s.startsWith('## ')) || '';
-  check('the changelog opens on 1.0.0', /^## 1\.0\.0 - /.test(top), top.slice(0, 30));
+  check('the changelog opens on 1.1.0', /^## 1\.1\.0 - /.test(top), top.slice(0, 30));
   check('the release notes are that section and nothing else', notes.replace(/\s+$/, '') === top.replace(/\s+$/, ''));
   check('there is a licence', /MIT License/.test(read('LICENSE') || ''));
   check('the README names the slash command', /\/conjure/.test(read('README.md') || ''));

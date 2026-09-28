@@ -1,8 +1,8 @@
 # Conjurer
 
 Mage food and water for WoW Forever. Set how much of each rank you want, click Ready, hold one
-key, and the game conjures until every target is met. Then hand out shares by class to your party
-or raid straight into the trade window, and eat and drink with one button.
+key (or just click), and the game conjures until every target is met. Then hand out shares by
+class to your party or raid straight into the trade window, and eat and drink with one button.
 
 Type `/conjure` (or `/conjurer`), or click the minimap button.
 
@@ -18,9 +18,10 @@ A Blizzard-style window with the Ready bar at the top and sections you can fold 
 - **Mana gems**: tick **Keep your mana gems** and Ready conjures any ticked gem you're missing
   (one of each, as the game allows), before water and food. Missing gems also show on the low
   alert.
-- **Shares by class**: how much water and food each class gets, and how much you keep. Options to
-  fill the trade window by itself, to give each person the best rank they can use, and to include
-  the whole raid or just your group of five.
+- **Shares by class**: how much water and food each class gets, how much you keep, and the most a
+  stranger gets. Options to fill the trade window by itself (for strangers too, if you like), to
+  give each person the best rank they can use, to put what you conjure with a trade open into the
+  trade, and to include the whole raid or just your group of five.
 - **Group**: everyone in your party or raid with their share and whether they're ready, short,
   out of range or already handed out. The Trade button asks them to trade and fills the window.
   A hand-out is forgotten after the time you set (30 minutes to start, 0 keeps it until you press
@@ -28,7 +29,8 @@ A Blizzard-style window with the Ready bar at the top and sections you can fold 
 - **Eat and drink macro**: one action bar button that eats your best conjured food and drinks your
   best conjured water at the same time.
 - **Low food and water alert**: an icon that shows when you run low, with a threshold for each.
-- **Options**: the chime, hold to cast, the minimap button, and the debug report.
+- **Options**: the chime, drinking when out of mana, player tooltips, tidying your bags, hold to
+  cast, the minimap button, and the debug report.
 
 ## Profiles
 
@@ -72,6 +74,11 @@ like holding one of your action bar keys.
 - If that last cast comes up short after all, the spell goes back on the button, but never while you
   still hold the key between casts (the game refuses that): let go and hold again. A cast whose
   items arrive in two parts (one tops up a stack, the rest start a new one) isn't taken as short.
+- **Bags full**: each cast checks that the next one will fit. The hold ends on the last cast that
+  fits, a row with no room is passed over, and when nothing fits Ready goes off and says so.
+- **Out of mana**: once the next cast can't be paid for, the borrowed button gets your best
+  conjured water instead, so your key drinks. When you're full again the spell comes back and the
+  key conjures. Untick **Drink when you run out of mana** in Options to keep the spell.
 - When every target is met, Ready switches itself off, the borrowed button is emptied and your key
   goes back to what it normally does.
 - Entering combat switches Ready off at once. A secure state driver also takes the key away the
@@ -92,6 +99,19 @@ Down** (Options > Combat). Conjurer looks after them in three ways:
 - If the game ever refuses the change, Conjurer says so, and each press conjures once until you
   tick them in Options > Combat. The Ready bar says so too.
 
+## Conjuring by click
+
+Rather click than hold a key? The button next to the key button on the Ready bar, and the one on
+the low alert, conjure with a click: one cast per click, no Ready and no key needed. It always holds
+the next row still short of its target, counting items on their way, so a click during a row's last
+cast already makes the next row. On the alert, once every target is met, it conjures whatever the
+alert shows as low. It follows the same rules as Ready: a row with no room is passed over, and out
+of mana it drinks your best water until you're full. It works out of combat only.
+
+Holding the mouse button down conjures once: the game repeats a held cast only for a key, never a
+mouse click (not even on its own action bars). To conjure by holding with the mouse, pick a side
+mouse button as your key.
+
 ## Trading
 
 When a group member opens a trade with you (or you click Trade on their row), their share goes into
@@ -99,8 +119,29 @@ the trade window: the best rank they can use, in whole stacks where possible. A 
 whole stacks is split inside your bags first and then moved in. You still press the game's own
 Trade button to finish. What was handed over is counted only once the trade completes.
 
-A **Conjurer: give share** button hangs under the game's trade window: it puts the share in by hand,
-for anyone you trade (in your group or not), when the automatic fill is off or didn't happen.
+A row of buttons hangs under the game's trade window:
+
+- **Conjurer: give share** puts their share in by hand, for anyone you trade, when the automatic
+  fill is off or didn't happen.
+- **+ Water** and **+ Food** each put in one stack of your best conjured water or food they can
+  use, your fullest stack first. Click again for another.
+- **Clear** takes everything you put in back out.
+
+Someone outside your group gets their class's share, but never more than the **Strangers, at
+most** row (20 water and 20 food to start). Tick **And for strangers too** to fill their trades by
+themselves as well.
+
+Conjure while a trade is open and what you make goes into the window as it arrives (**Put what you
+conjure with a trade open into the trade**, on by default).
+
+Hovering a friendly player shows what Conjurer would hand them, and whether they've had it
+(**Show shares on player tooltips** in Options).
+
+## Tidy bags
+
+Loose stacks of conjured food and water are merged into whole ones, one move at a time, only when
+nothing else is going on: out of combat, Ready off, no trade open, nothing on the cursor, nothing
+being cast. Untick **Tidy conjured stacks in your bags** in Options to leave your bags alone.
 
 ## The eat and drink macro
 
@@ -116,8 +157,9 @@ your best rank, the one you conjure (and any better one another mage gave you), 
 lower rank doesn't hide that you're out; tick **Count lower ranks too** to count every rank you're
 high enough to use. It only alerts for what you can conjure.
 
-- Next to it are a **play** button that starts conjuring (stop while it runs) and a **cog** that
-  opens Conjurer. Started from the alert, it stays up until conjuring stops, so stop stays in reach.
+- Next to it are a click-to-conjure button, a **play** button that starts Ready (stop while it
+  runs) and a **cog** that opens Conjurer. Started from the alert, it stays up until conjuring
+  stops, so stop stays in reach.
 - **Show it**: out of combat (the default), in combat, or always.
 - Click an icon to open Conjurer, right-click it to start or stop conjuring, and drag it wherever
   you like (**Show it to move it** shows it so you can). A sound when it appears is optional.
@@ -130,12 +172,15 @@ One click tells your group to trade you for food and water, with how much you ha
 > Mage food and water here! Trade me for yours. I have 120 Crystal Water (55+), 40 Sparkling Water
 > (45+) and 60 Cinnamon Roll (55+).
 
+- The items are links people can shift-click. When the links would make the message too long for
+  the chat, it goes with plain names instead.
 - It goes to your battleground or instance group when you're in one, else your raid, else your
   party. The section shows exactly what would be sent, and where, before you click.
 - The message is yours to word: `{stock}` becomes everything you have, `{water}` and `{food}` each
   kind on its own. **Reset text** brings back the default.
-- By default it only shows while you're in a group. It won't send more than once every 10 seconds,
-  and only when you click it.
+- By default it only shows while you're in a group. Untick **Only while you're in a group** and
+  on your own it tells the people around you (Say), for a call in town. It won't send more than
+  once every 10 seconds, and only when you click it.
 - Right-click it for Conjurer's settings, drag it to move it (**Show it to move it** shows it so
   you can).
 
@@ -147,6 +192,9 @@ One click tells your group to trade you for food and water, with how much you ha
 - `/conjure reset` puts the window back in the middle of the screen.
 - `/conjure debug` prints what Conjurer found on this client.
 - `/conjure note <text>` writes a line into the log.
+
+Another addon (ConjureBot) also uses `/conjure`. With both installed, `/conjurer` always reaches
+Conjurer.
 
 ## The log
 
