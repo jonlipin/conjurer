@@ -159,6 +159,11 @@ function CreateFrame(kind, name, parent, template)
     f.SetPortraitToAsset = function(s, icon) s.PortraitContainer.portrait.texture = icon end
   end
   if template == "UIPanelButtonTemplate" then f.fontString = obj("fontstring") end
+  if template == "PanelTabButtonTemplate" then
+    f.Text = obj("fontstring") f.Left = obj("texture") f.Right = obj("texture")
+    parent.Tabs = parent.Tabs or {}
+    parent.Tabs[#parent.Tabs + 1] = f
+  end
   if template == "ConjurerScrollFrameTemplate" or template == "UIPanelScrollFrameTemplate" then f.ScrollBar = obj("Slider") end
   if template == "MinimalSliderWithSteppersTemplate" then
     f.Slider = CreateFrame("Slider", nil, f)
@@ -184,6 +189,11 @@ function CreateFrame(kind, name, parent, template)
 end
 
 MinimalSliderWithSteppersMixin = { Event = { OnValueChanged = "OnValueChanged" }, Label = { Left = 1, Right = 2 } }
+function PanelTemplates_SetTab(frame, id) frame.selectedTab = id end
+function PanelTemplates_TabResize(tab, padding, size, minWidth) tab.w = math.max(minWidth or 0, #(tab.text or "") * 6 + 20) end
+-- Where the player is: INSTANCE = { inside = true, kind = "pvp", max = 40 } in a battleground.
+function IsInInstance() if INSTANCE and INSTANCE.inside then return true, INSTANCE.kind end return false, "none" end
+function GetInstanceInfo() local i = INSTANCE or {} return "Somewhere", i.kind or "none", 0, "", i.max or 0 end
 
 UIParent = obj("Frame") UIParent.w, UIParent.h = 1920, 1080
 Minimap = obj("Frame") Minimap.w, Minimap.h = 140, 140
@@ -581,6 +591,11 @@ function ErrorWith(text)
 end
 function KnowAll() for _, list in pairs({ NS and NS.WATER or {}, NS and NS.FOOD or {} }) do for _, e in ipairs(list) do KNOWN[e.spell] = true end end end
 function Played(id) for _, p in ipairs(PLAYED) do if p == id then return true end end return false end
+-- Which profile tab is selected, from Blizzard's tab state or the plain tabs' own.
+function SelectedTab()
+  if NS.report["profile tabs"] == "PanelTabButtonTemplate" then return ConjurerFrame.selectedTab end
+  for i, tab in ipairs(NS.UI.parts.tabs) do if tab.selected then return i end end
+end
 function Click(button, which) button.scripts.OnClick(button, which or "LeftButton") RunTimers(0) end
 
 -- A hold, the way the client behaved in the first in-game test (log of 2026-09-28): the key goes
@@ -642,9 +657,9 @@ RunTimers(0)
 local C, T, UI = ns.Conjure, ns.Trade, ns.UI
 
 check("saved variables are made", type(ConjurerDB) == "table" and ns.db == ConjurerDB)
-check("the first login plans your own stock at your best ranks", ConjurerDB.targets.water[7] == 40 and ConjurerDB.targets.food[7] == 20,
-  tostring(ConjurerDB.targets.water[7]) .. "/" .. tostring(ConjurerDB.targets.food[7]))
-check("and only once", ConjurerDB.seeded == true)
+check("the first login plans your own stock at your best ranks", ConjurerDB.profiles.solo.water[7] == 40 and ConjurerDB.profiles.solo.food[7] == 20,
+  tostring(ConjurerDB.profiles.solo.water[7]) .. "/" .. tostring(ConjurerDB.profiles.solo.food[7]))
+check("and only once", ConjurerDB.profiles.solo.seeded == true)
 check("it knows this is a mage", ns.isMage == true)
 check("the minimap button is up", ConjurerMinimapButton and ConjurerMinimapButton.shown)
 check("the combat guard is a secure state driver", #STATE_DRIVERS == 1 and STATE_DRIVERS[1].cond == "[combat] on; off" and STATE_DRIVERS[1].frame.attributes["_onstate-conjurercombat"]:find("ClearBindings", 1, true) ~= nil)
@@ -698,19 +713,19 @@ check("the key button shows the key", P.keyButton.text == "Key: F")
 -- Moving a slider sets the target; syncing it back does not.
 waterRows[1].slider.Slider:SetValue(60)
 RunTimers(0)
-check("a slider moved by hand sets the target", ns.db.targets.water[7] == 60)
+check("a slider moved by hand sets the target", ns.Profile().water[7] == 60)
 waterRows[1].slider.Slider:SetValue(40)
 RunTimers(0)
-check("and back", ns.db.targets.water[7] == 40)
-ns.db.targets.water[6] = 250
+check("and back", ns.Profile().water[7] == 40)
+ns.Profile().water[6] = 250
 UI.Refresh()
 check("a target past the slider's end widens the slider instead of clipping", waterRows[2].slider.Slider.maxV == 300 and waterRows[2].slider.Slider.value == 250)
-ns.db.targets.water[6] = 420
+ns.Profile().water[6] = 420
 UI.Refresh()
-check("far past it, the slider grows to the next hundred", waterRows[2].slider.Slider.maxV == 500 and ns.db.targets.water[6] == 420)
-ns.db.targets.water[6] = 0
+check("far past it, the slider grows to the next hundred", waterRows[2].slider.Slider.maxV == 500 and ns.Profile().water[6] == 420)
+ns.Profile().water[6] = 0
 UI.Refresh()
-check("a cleared target stays cleared", ns.db.targets.water[6] == 0)
+check("a cleared target stays cleared", ns.Profile().water[6] == 0)
 
 -- Collapsing
 local heightOpen = P.content.h
@@ -771,7 +786,7 @@ check("the bar says so", P.readyTitle.text == "Nothing to conjure")
 check("and the play button greys out", P.readyButton.play.shown and P.readyButton.play.desaturated == true and P.readyButton.play.alpha < 1)
 
 -- Short hold, let go early, hold again.
-ns.db.targets.water[7] = 60
+ns.Profile().water[7] = 60
 Click(P.readyButton)
 casts = Hold("F", 2)
 check("letting go stops the casting", casts == 2 and C.armed and C_Item.GetItemCount(8079) == 48)
@@ -783,7 +798,7 @@ check("the next hold carries on to the target, not a cast past it", C_Item.GetIt
 local saved = ns.db.yield
 ns.db.yield = {}
 local base = C_Item.GetItemCount(8079)
-ns.db.targets.water[7] = base + 4
+ns.Profile().water[7] = base + 4
 Click(P.readyButton)
 casts = Hold("F", 100)
 check("the first time, one queued cast goes over", casts == 2 and C_Item.GetItemCount(8079) == base + 8 and not C.armed, casts)
@@ -791,7 +806,7 @@ ns.db.yield = saved
 
 -- The finishing cast interrupted: its spell goes back and the row carries on.
 base = C_Item.GetItemCount(8079)
-ns.db.targets.water[7] = base + 8
+ns.Profile().water[7] = base + 8
 Click(P.readyButton)
 INTERRUPT_AT = 2
 casts = Hold("F", 100)
@@ -801,7 +816,7 @@ check("and the next press finishes the row exactly", casts == 1 and not C.armed 
 
 -- Something else lands in the bags during the finishing cast: the early move holds.
 base = C_Item.GetItemCount(8079)
-ns.db.targets.water[7] = base + 8
+ns.Profile().water[7] = base + 8
 Click(P.readyButton)
 BAG_UPDATE_MIDCAST = true
 casts = Hold("F", 100)
@@ -810,7 +825,7 @@ check("a bag change during the finishing cast doesn't undo the early move", cast
   and C_Item.GetItemCount(8079) == base + 8, casts)
 
 -- Combat: Ready goes off before the lockdown.
-ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 40
+ns.Profile().water[7] = C_Item.GetItemCount(8079) + 40
 Click(P.readyButton)
 fire("PLAYER_REGEN_DISABLED")
 RunTimers(0)
@@ -872,8 +887,8 @@ check("the button used last time is used again", BINDINGS.F.command == "MULTIACT
 Click(P.readyButton)
 
 -- The cursor busy when a row finishes: the swap waits for it.
-ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 4
-ns.db.targets.water[6] = 4
+ns.Profile().water[7] = C_Item.GetItemCount(8079) + 4
+ns.Profile().water[6] = 4
 Click(P.readyButton)
 CURSOR = { kind = "item", id = 4306 }
 AddItems(8079, 4)
@@ -884,11 +899,11 @@ CURSOR = nil
 RunTimers(0.5)
 check("and goes on when the cursor is free", ACTIONS[159].id == 10139)
 Click(P.readyButton)
-ns.db.targets.water[6] = 0
+ns.Profile().water[6] = 0
 
 -- The settings locked by the client: Ready still works, one cast per press.
 LOCKED_CVARS.ActionButtonUseKeyHeldSpell = true
-ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 8
+ns.Profile().water[7] = C_Item.GetItemCount(8079) + 8
 Click(P.readyButton)
 check("a locked setting doesn't stop Ready", C.armed and CVARS.ActionButtonUseKeyHeldSpell == "0")
 check("it says to press once per cast", ChatWith("each press conjures once") == 1 and P.readyDetail.text:find("Hold to cast is off, so press once per cast", 1, true) ~= nil)
@@ -913,7 +928,7 @@ check("closed, Options says whether hold to cast is on", P.sections.options.head
 Click(P.settingsButton)
 check("Turn both on turns them on for good", CVARS.ActionButtonUseKeyHeldSpell == "1" and ChatWith("Press and Hold Casting and Cast on Key Down are on.") == 1)
 check("and the button goes", not P.settingsButton.shown and P.settingsState.text:find("Press and Hold Casting |cff66dd66on|r", 1, true) ~= nil)
-ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 40
+ns.Profile().water[7] = C_Item.GetItemCount(8079) + 40
 Click(P.readyButton)
 Click(P.readyButton)
 check("settings already on are left on by Ready", CVARS.ActionButtonUseKeyHeldSpell == "1" and ns.db.savedCVars == nil)
@@ -976,11 +991,11 @@ check("the group rows show it", P.memberRows[2].status.text == "Short 20 Sparkli
 check("the empty-group line hides", P.groupEmpty.shown == false)
 
 T.FillTargets(true)
-check("filling from the group adds you and each share at its rank", ns.db.targets.water[7] == 120 and ns.db.targets.water[6] == 20
-  and ns.db.targets.food[7] == 80 and ns.db.targets.food[6] == 20,
-  ns.db.targets.water[7] .. " " .. tostring(ns.db.targets.water[6]) .. " " .. ns.db.targets.food[7] .. " " .. tostring(ns.db.targets.food[6]))
+check("filling from the group adds you and each share at its rank", ns.Profile().water[7] == 120 and ns.Profile().water[6] == 20
+  and ns.Profile().food[7] == 80 and ns.Profile().food[6] == 20,
+  ns.Profile().water[7] .. " " .. tostring(ns.Profile().water[6]) .. " " .. ns.Profile().food[7] .. " " .. tostring(ns.Profile().food[6]))
 check("and says what it set", ChatWith("Targets set from your group: 120 Crystal Water, 20 Sparkling Water, 80 Cinnamon Roll, 20 Sweet Roll.") == 1)
-check("ranks you left untouched are cleared", ns.db.targets.water[5] == 0)
+check("ranks you left untouched are cleared", ns.Profile().water[5] == 0)
 ns.db.bestRank = false
 check("with best rank off everyone gets your best", T.ShareText(members[2]) == "20 Crystal Water, 20 Cinnamon Roll")
 ns.db.bestRank = true
@@ -1115,8 +1130,82 @@ RAID = false
 GROUP = {}
 UnitIsUnit = function(a, b) return a == b end
 
+-- ---- Profiles -------------------------------------------------------------
+RAID, GROUP = false, {}
+UI.Show() RunTimers(0)
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+check("alone again, the profile goes back to Solo", ns.db.profile == "solo" and ChatWith("Profile: Solo.") == 1)
+check("eight profile tabs hang under the window", #P.tabs == 8 and P.tabs[1].text == "Solo" and P.tabs[8].text == "AV 40"
+  and P.tabs[1].points[1][2] == ConjurerFrame and P.tabs[1].points[1][3] == "BOTTOMLEFT")
+check("in Blizzard's tab template", ns.report["profile tabs"] == "PanelTabButtonTemplate" and #ConjurerFrame.Tabs == 8)
+check("Solo's tab is the selected one", SelectedTab() == 1)
+check("they fit under the window", 12 + 8 * 72 + 7 * 3 <= ConjurerFrame.w)
+check("each profile has its own amounts at your best rank", ns.Profile("party").food[7] ~= nil and ns.Profile("raid40").water[7] == 300
+  and ns.Profile("bg40").water[7] == 240 and ns.Profile("bg10").food[7] == 60)
+local soloWater = ns.Profile("solo").water[7]
+GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+check("joining a party switches to Party", ns.db.profile == "party" and SelectedTab() == 2 and ChatWith("Profile: Party.") >= 1)
+ns.Profile().water[7] = 100
+UI.Refresh()
+check("the rows show Party's targets", P.rankRows.water[1].slider.Slider.value == 100)
+P.rankRows.water[1].slider.Slider:SetValue(140) RunTimers(0)
+check("a slider changes the profile in use and no other", ns.Profile("party").water[7] == 140 and ns.Profile("solo").water[7] == soloWater)
+local function RaidOf(n)
+  GROUP = {}
+  for i = 1, n - 1 do GROUP[i] = { unit = "raid" .. i, guid = "R" .. i, name = "R" .. i, level = 60, class = "MAGE" } end
+  RAID = true
+  fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+end
+RaidOf(8)
+check("a raid of 8 is Raid 10", ns.db.profile == "raid10")
+RaidOf(14)
+check("a raid of 14 is Raid 20", ns.db.profile == "raid20")
+RaidOf(25)
+check("a raid of 25 is Raid 40", ns.db.profile == "raid40" and SelectedTab() == 5)
+Click(P.tabs[2])
+check("clicking a tab picks that profile", ns.db.profile == "party" and SelectedTab() == 2)
+RaidOf(30)
+check("and it holds while the raid stays in the same size", ns.db.profile == "party")
+RaidOf(12)
+check("until the raid changes size", ns.db.profile == "raid20")
+INSTANCE = { inside = true, kind = "pvp", max = 10 }
+RaidOf(10)
+check("Warsong Gulch, 10 a side, is BG 10", ns.db.profile == "bg10")
+INSTANCE.max = 15
+fire("ZONE_CHANGED_NEW_AREA") RunTimers(0)
+check("Arathi Basin, 15 a side, is BG 20", ns.db.profile == "bg20")
+INSTANCE.max = 40
+fire("PLAYER_ENTERING_WORLD") RunTimers(0)
+check("Alterac Valley, 40 a side, is AV 40", ns.db.profile == "bg40" and SelectedTab() == 8)
+INSTANCE.max = 0
+RaidOf(9)
+check("a battleground that gives no size goes by the group", ns.db.profile == "bg10")
+INSTANCE = { inside = true, kind = "raid", max = 40 }
+RaidOf(35)
+check("a raid instance is a raid, not a battleground", ns.db.profile == "raid40")
+INSTANCE = nil
+RAID, GROUP = false, {}
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+check("out and alone, back to Solo", ns.db.profile == "solo" and ns.Profile().water[7] == soloWater)
+ns.db.profileAuto = false
+GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+check("with Switch profile with your group off, it stays put", ns.db.profile == "solo")
+GROUP = {}
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+ns.db.profileAuto = true
+ns.Profile("raid40").water[7] = C_Item.GetItemCount(8079) + 100
+ns.SetProfile("raid40", "test")
+UI.Refresh()
+check("Ready works to the profile in use", P.readyDetail.text:find("Crystal Water, %d+ of " .. ns.Profile("raid40").water[7]) ~= nil, P.readyDetail.text)
+check("the log has the switches", table.concat(ConjurerLog.entries, "\n"):find("profile: Raid 40 (test)", 1, true) ~= nil
+  and table.concat(ConjurerLog.entries, "\n"):find("profile: AV 40 (your group)", 1, true) ~= nil)
+ns.SetProfile("solo", "test")
+check("the debug report names the profile", table.concat(ns.DebugReport(), "\n"):find("profile: Solo; follows your group: true; your group now: Solo", 1, true) ~= nil)
+
 -- ---- Odds and ends ------------------------------------------------------
-ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 20
+ns.Profile().water[7] = C_Item.GetItemCount(8079) + 20
 ConjurerMinimapButton.scripts.OnClick(ConjurerMinimapButton, "RightButton")
 check("right-clicking the minimap button lights Ready", C.armed)
 ConjurerMinimapButton.scripts.OnClick(ConjurerMinimapButton, "RightButton")
@@ -1210,7 +1299,7 @@ fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("switched off, it stays hidden", not ConjurerAlert.shown)
 ns.db.alert.enabled = true
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
-ns.db.targets.water[7] = 40
+ns.Profile().water[7] = 40
 Click(ConjurerAlertPlay)
 check("its play button starts conjuring", C.armed)
 check("and turns into a stop button", ConjurerAlertPlay.art.atlas == "charactercreate-customize-stopbutton"
@@ -1363,7 +1452,7 @@ SV_TEXT = DumpSV("ConjurerLog", ConjurerLog)
 
 -- A reload while Ready was lit: the next login puts the settings back.
 if C.armed then C.Disarm() end
-ns.db.targets.water[7] = C_Item.GetItemCount(8079) + 20
+ns.Profile().water[7] = C_Item.GetItemCount(8079) + 20
 Click(P.readyButton)
 check("lit before the reload", C.armed and CVARS.ActionButtonUseKeyHeldSpell == "1")
 SAVED = ConjurerDB
@@ -1380,7 +1469,7 @@ const scenarios = [
     local ns = LoadConjurer()
     fire("ADDON_LOADED", "Conjurer") fire("PLAYER_LOGIN") RunTimers(0)
     check("the setting left on by a reload is put back at login", CVARS.ActionButtonUseKeyHeldSpell == "0" and ns.db.savedCVars == nil)
-    check("the planned targets are kept", ns.db.seeded == true)
+    check("the planned targets are kept", ns.Profile().seeded == true)
     check("the log carries on in a new session", ConjurerLog.session == 4 and ConjurerLog.entries[1]:find("#3 ", 1, true) == 1
       and table.concat(ConjurerLog.entries, "\n"):find("#4 %d%d:%d%d:%d%d session start") ~= nil)
     check("the put-back is logged", table.concat(ConjurerLog.entries, "\n"):find("setting ActionButtonUseKeyHeldSpell put back to 0", 1, true) ~= nil)
@@ -1395,15 +1484,15 @@ const scenarios = [
     check("the slash command says it's for mages", ChatWith("Conjurer is for mages") == 1 and ConjurerFrame == nil)
     ns.Conjure.Arm()
     check("Ready refuses", ns.Conjure.armed == false and ChatWith("Conjurer is for mages") == 2)
-    check("no targets are planned", ns.db.seeded == nil)
+    check("no targets are planned", ns.Profile().seeded == nil)
   ` },
   { label: 'a young mage', code: String.raw`
     PLAYER_LEVEL = 24
     local ns = LoadConjurer()
     for _, e in ipairs({ ns.WATER[1], ns.WATER[2], ns.WATER[3], ns.FOOD[1], ns.FOOD[2], ns.FOOD[3] }) do KNOWN[e.spell] = true end
     fire("ADDON_LOADED", "Conjurer") fire("PLAYER_LOGIN") RunTimers(0)
-    check("a young mage's stock is planned at the ranks it knows", ns.db.targets.water[3] == 40 and ns.db.targets.food[3] == 20
-      and (ns.db.targets.water[7] or 0) == 0)
+    check("a young mage's stock is planned at the ranks it knows", ns.Profile().water[3] == 40 and ns.Profile().food[3] == 20
+      and (ns.Profile().water[7] or 0) == 0)
     ns.UI.Toggle() RunTimers(0)
     local rows = ns.UI.parts.rankRows.water
     local body = ns.UI.parts.sections.water.body
@@ -1412,7 +1501,7 @@ const scenarios = [
     check("closed up at the top, best first", rows[5].points[1][5] == -2 and rows[6].points[1][5] == -30 and rows[7].points[1][5] == -58)
     check("the section is only as tall as those rows", body.h == 2 + 3 * 28 + 2, body.h)
     check("with no empty-list line", body.empty.shown == false)
-    ns.db.targets.water[7] = 40
+    ns.Profile().water[7] = 40
     ns.db.collapsed.water = true
     ns.UI.Refresh()
     check("a closed section counts only learned ranks", ns.UI.parts.sections.water.header.Summary.text == "1 rank, 0 of 40",
@@ -1431,10 +1520,10 @@ const scenarios = [
   { label: 'a mage before any conjure spell', code: String.raw`
     PLAYER_LEVEL = 2
     local ns = Login()
-    check("nothing is planned yet", ns.db.seeded == nil)
+    check("nothing is planned yet", ns.Profile().seeded == nil)
     KNOWN[5504] = true
     fire("SPELLS_CHANGED")
-    check("learning Conjure Water plans it", ns.db.seeded == true and ns.db.targets.water[1] == 40)
+    check("learning Conjure Water plans it", ns.Profile().seeded == true and ns.Profile().water[1] == 40)
     ns.UI.Toggle() RunTimers(0)
     local food = ns.UI.parts.sections.food.body
     check("with no food rank learned the Food list says so", food.empty.shown and food.empty.text == "You haven't learned Conjure Food yet.")
@@ -1444,6 +1533,19 @@ const scenarios = [
     check("the Water list shows its one rank", ns.UI.parts.rankRows.water[7].shown and ns.UI.parts.sections.water.body.empty.shown == false)
     fire("BAG_UPDATE_DELAYED") RunTimers(0)
     check("out of water it alerts, but never about food it can't make", ConjurerAlert.shown and ConjurerAlertWater.shown and not ConjurerAlertFood.shown)
+  ` },
+  { label: 'targets from before profiles', code: String.raw`
+    ConjurerDB = { targets = { water = { [1] = 40, [3] = 60 }, food = { [1] = 20 } }, seeded = true }
+    local ns = LoadConjurer()
+    for _, e in ipairs({ ns.WATER[1], ns.WATER[2], ns.WATER[3], ns.FOOD[1], ns.FOOD[2], ns.FOOD[3] }) do KNOWN[e.spell] = true end
+    fire("ADDON_LOADED", "Conjurer") fire("PLAYER_LOGIN") RunTimers(0)
+    local solo = ns.db.profiles.solo
+    check("the targets you had are now the Solo profile", solo.water[3] == 60 and solo.water[1] == 40 and solo.food[1] == 20)
+    check("the old place is cleared", ns.db.targets == nil and ns.db.seeded == nil and solo.seeded == true)
+    check("Solo isn't planned again on top of them", (solo.food[3] or 0) == 0)
+    check("the other profiles start at the best rank known", ns.db.profiles.party.water[3] == 100 and ns.db.profiles.bg40.food[3] == 100)
+    check("alone, Solo is in use", ns.db.profile == "solo" and ns.Target(ns.WATER[3]) == 60)
+    check("the move is logged", table.concat(ConjurerLog.entries, "\n"):find("saved settings: targets moved into the Solo profile", 1, true) ~= nil)
   ` },
   { label: 'no FlipBook', code: String.raw`
     BAD_FLIPBOOK = true
@@ -1474,7 +1576,7 @@ function number(L, name) {
 const bareTemplates = ['ButtonFrameTemplate', 'PortraitFrameTemplate', 'BackdropTemplate', 'UIPanelButtonTemplate',
   'UIPanelCloseButton', 'UICheckButtonTemplate', 'ChatConfigCheckButtonTemplate', 'MinimalSliderWithSteppersTemplate',
   'MinimalSliderTemplate', 'UISliderTemplate', 'OptionsSliderTemplate', 'ConjurerScrollFrameTemplate',
-  'UIPanelScrollFrameTemplate', 'InsetFrameTemplate', 'SecureHandlerStateTemplate'];
+  'UIPanelScrollFrameTemplate', 'InsetFrameTemplate', 'SecureHandlerStateTemplate', 'PanelTabButtonTemplate'];
 const BARE = process.argv.includes('--bare');
 const pre = (BARE ? 'BARE=true\nBAD_ATLAS=true\nBAD_TEMPLATES={' + bareTemplates.map(t => t + '=true').join(',') + '}\n' : '')
   + (process.argv.includes('--verbose') ? 'VERBOSE=true\n' : '');
@@ -1512,6 +1614,7 @@ const bareDriver = driver
   .replace(/check\("and it's lit up while there's something to start"[^\n]*\n/, 'check("in full while there is something to start", P.readyButton.playText.alpha == 1)\n')
   .replace(/check\("the play button turns into a stop button"[^\n]*\n[^\n]*\n/, 'check("and Stop while lit", P.readyButton.playText.shown and P.readyButton.playText.text == "Stop")\n')
   .replace(/check\("and the play button greys out"[^\n]*\n/, 'check("and Start fades when there is nothing to start", P.readyButton.playText.text == "Start" and P.readyButton.playText.alpha < 1)\n')
+  .replace(/check\("in Blizzard's tab template"[^\n]*\n/, 'check("without the tab template the tabs are plain buttons", ns.report["profile tabs"] == "plain" and P.tabs[1].bg ~= nil)\n')
   .replace(/check\("it has the window's templates"[^\n]*\n/, 'check("it has the window\'s stand-ins", all:find("window built: window template plain; slider template plain", 1, true) ~= nil)\n')
   .replace(/check\("the combat guard is a secure state driver"[^\n]*\n/, 'check("without the secure template there is no state driver, and the report says so", #STATE_DRIVERS == 0 and ns.report["combat guard"]:find("none", 1, true) ~= nil)\n')
   .replace(/check\("even in a lockdown the state driver takes the key away"[^\n]*\n/, 'BINDINGS.F = nil\n')

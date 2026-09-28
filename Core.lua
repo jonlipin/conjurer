@@ -67,7 +67,9 @@ local SHARE_DEFAULTS = {
 ns.SHARE_DEFAULTS = SHARE_DEFAULTS
 
 local DEFAULTS = {
-	targets = { water = {}, food = {} },
+	profiles = {},
+	profile = "solo",
+	profileAuto = true,
 	shares = {},
 	keep = { water = 40, food = 20 },
 	key = "F",
@@ -226,14 +228,59 @@ function ns.Known(spell)
 	return false
 end
 
+-- ------------------------------------------------------------------
+-- Profiles
+--
+-- One set of targets per kind of group: solo, a party, raids of up to 10, 20 or 40, and
+-- battlegrounds sized like Warsong Gulch, Arathi Basin and Alterac Valley. The profile in use
+-- follows your group (a battleground by its own size, from the instance) unless you pick one by
+-- hand; a hand pick holds until your group moves into another size.
+-- ------------------------------------------------------------------
+
+ns.PROFILES = {
+	{ key = "solo", label = "Solo", tip = "When you're on your own.", water = 40, food = 20 },
+	{ key = "party", label = "Party", tip = "In a party of up to five.", water = 100, food = 60 },
+	{ key = "raid10", label = "Raid 10", tip = "In a raid of up to 10.", water = 160, food = 80 },
+	{ key = "raid20", label = "Raid 20", tip = "In a raid of 11 to 20.", water = 240, food = 100 },
+	{ key = "raid40", label = "Raid 40", tip = "In a raid of more than 20.", water = 300, food = 120 },
+	{ key = "bg10", label = "BG 10", tip = "In a battleground of up to 10 a side, like Warsong Gulch.", water = 100, food = 60 },
+	{ key = "bg20", label = "BG 20", tip = "In a battleground of 11 to 20 a side, like Arathi Basin.", water = 160, food = 80 },
+	{ key = "bg40", label = "AV 40", tip = "In a battleground of more than 20 a side, like Alterac Valley.", water = 240, food = 100 },
+}
+ns.PROFILE_BY_KEY = {}
+for i, def in ipairs(ns.PROFILES) do
+	def.index = i
+	ns.PROFILE_BY_KEY[def.key] = def
+end
+
+-- A profile's targets ({ water = {rank = n}, food = {...} }), the one in use when no key is given.
+function ns.Profile(key)
+	key = key or (ns.db and ns.db.profile) or "solo"
+	if not ns.PROFILE_BY_KEY[key] then key = "solo" end
+	local profiles = ns.db.profiles
+	local p = profiles[key]
+	if type(p) ~= "table" then
+		p = {}
+		profiles[key] = p
+	end
+	if type(p.water) ~= "table" then p.water = {} end
+	if type(p.food) ~= "table" then p.food = {} end
+	return p
+end
+
+function ns.ProfileKey()
+	local key = ns.db and ns.db.profile
+	return ns.PROFILE_BY_KEY[key] and key or "solo"
+end
+
 function ns.Target(entry)
-	local t = ns.db and ns.db.targets[entry.kind]
-	return (t and tonumber(t[entry.rank])) or 0
+	if not ns.db then return 0 end
+	return tonumber(ns.Profile()[entry.kind][entry.rank]) or 0
 end
 
 -- Zero is stored rather than removed, so a target the player cleared stays cleared.
 function ns.SetTarget(entry, value)
-	ns.db.targets[entry.kind][entry.rank] = math.max(0, math.floor((tonumber(value) or 0) + 0.5))
+	ns.Profile()[entry.kind][entry.rank] = math.max(0, math.floor((tonumber(value) or 0) + 0.5))
 end
 
 -- The best rank of a kind this character knows.
@@ -244,19 +291,70 @@ function ns.TopKnown(kind)
 	end
 end
 
--- A new character starts with its own stock planned at its best ranks: the "You keep" amounts.
--- Waits until the character knows at least one conjure spell.
+-- Each profile starts with its own amounts at your best ranks (Solo with what you keep), once you
+-- know at least one conjure spell.
 function ns.SeedTargets()
-	if not ns.db or ns.db.seeded or not ns.isMage then return end
-	local any = false
-	for _, kind in ipairs(ns.KIND_ORDER) do
-		local top = ns.TopKnown(kind)
-		if top then
-			any = true
-			if ns.Target(top) == 0 then ns.SetTarget(top, ns.db.keep[kind] or 0) end
+	if not ns.db or not ns.isMage then return end
+	for _, def in ipairs(ns.PROFILES) do
+		local p = ns.Profile(def.key)
+		if not p.seeded then
+			local any = false
+			for _, kind in ipairs(ns.KIND_ORDER) do
+				local top = ns.TopKnown(kind)
+				if top then
+					any = true
+					local amount = def.key == "solo" and (ns.db.keep[kind] or 0) or def[kind]
+					if (tonumber(p[kind][top.rank]) or 0) == 0 then p[kind][top.rank] = amount end
+				end
+			end
+			if any then p.seeded = true end
 		end
 	end
-	if any then ns.db.seeded = true end
+end
+
+-- The kind of group you're in now, as a profile key.
+function ns.Bracket()
+	local inInstance, kind = false, nil
+	if IsInInstance then
+		local ok, a, b = pcall(IsInInstance)
+		if ok then inInstance, kind = ns.Clean(a), ns.Clean(b) end
+	end
+	local n = (GetNumGroupMembers and GetNumGroupMembers()) or 0
+	n = tonumber(ns.Clean(n)) or 0
+	if inInstance and kind == "pvp" then
+		local size
+		if GetInstanceInfo then
+			local ok, _, _, _, _, maxPlayers = pcall(GetInstanceInfo)
+			if ok then size = tonumber(ns.Clean(maxPlayers)) end
+		end
+		if not size or size <= 0 then size = n end
+		if size <= 10 then return "bg10" elseif size <= 20 then return "bg20" end
+		return "bg40"
+	end
+	if n <= 1 then return "solo" end
+	if not (IsInRaid and IsInRaid()) then return "party" end
+	if n <= 10 then return "raid10" elseif n <= 20 then return "raid20" end
+	return "raid40"
+end
+
+function ns.SetProfile(key, why)
+	if not ns.PROFILE_BY_KEY[key] or ns.db.profile == key then return false end
+	ns.db.profile = key
+	ns.Log("profile: " .. ns.PROFILE_BY_KEY[key].label .. " (" .. tostring(why) .. ")")
+	if ns.Conjure and ns.Conjure.armed then ns.Conjure.Update() end
+	ns.Refresh()
+	return true
+end
+
+-- Moves to the profile for your group, when your group has moved into another size.
+function ns.FollowGroup(quiet)
+	if not (ns.db and ns.db.profileAuto) then return end
+	local bracket = ns.Bracket()
+	if bracket == ns.db.lastBracket then return end
+	ns.db.lastBracket = bracket
+	if ns.SetProfile(bracket, "your group") and not quiet then
+		ns.Print("Profile: " .. ns.PROFILE_BY_KEY[bracket].label .. ".")
+	end
 end
 
 -- The item's name as the client spells it, once the client has it cached.
@@ -411,21 +509,43 @@ local function HookErrors()
 	report["error capture"] = ok and "on" or "not allowed on this client"
 end
 
-ns.On("ADDON_LOADED", function(name)
-	if name ~= ADDON then return end
+-- Before profiles there was one set of targets; it becomes the Solo profile.
+local function Migrate(db)
+	if type(db.targets) == "table" then
+		local solo = type(db.profiles.solo) == "table" and db.profiles.solo or {}
+		solo.water = type(db.targets.water) == "table" and db.targets.water or {}
+		solo.food = type(db.targets.food) == "table" and db.targets.food or {}
+		solo.seeded = db.seeded
+		db.profiles.solo = solo
+		db.targets = nil
+		db.migrated = "targets moved into the Solo profile"
+	elseif db.seeded ~= nil then
+		db.profiles.solo = type(db.profiles.solo) == "table" and db.profiles.solo or {}
+		db.profiles.solo.seeded = db.seeded
+	end
+	db.seeded = nil
+end
+
+local function OpenDB()
 	ConjurerDB = ConjurerDB or {}
 	Merge(ConjurerDB, DEFAULTS)
+	Migrate(ConjurerDB)
 	ns.db = ConjurerDB
+end
+
+ns.On("ADDON_LOADED", function(name)
+	if name ~= ADDON then return end
+	OpenDB()
 	OpenLog()
 	HookErrors()
+	if ns.db.migrated then
+		ns.Log("saved settings: " .. ns.db.migrated)
+		ns.db.migrated = nil
+	end
 end)
 
 ns.On("PLAYER_LOGIN", function()
-	if not ns.db then
-		ConjurerDB = ConjurerDB or {}
-		Merge(ConjurerDB, DEFAULTS)
-		ns.db = ConjurerDB
-	end
+	if not ns.db then OpenDB() end
 	if not ns.logTable then OpenLog() end
 	local _, class = UnitClass("player")
 	ns.isMage = class == "MAGE"
@@ -436,6 +556,7 @@ ns.On("PLAYER_LOGIN", function()
 		.. tostring(ns.Clean(UnitName("player"))) .. " " .. tostring(class) .. " " .. tostring(ns.Clean(UnitLevel("player"))))
 	ns.Stage("login")
 	ns.SeedTargets()
+	ns.FollowGroup(true)
 	for _, module in ipairs({ ns.Conjure, ns.Trade, ns.Macro, ns.UI, ns.Alert, ns.Minimap }) do
 		if module and module.Init then
 			local ok, err = pcall(module.Init)
@@ -461,6 +582,10 @@ ns.On("SPELLS_CHANGED", function()
 	ns.Refresh()
 end)
 ns.On("GET_ITEM_INFO_RECEIVED", function() ns.Refresh() end)
+ns.On("GROUP_ROSTER_UPDATE", function() ns.FollowGroup() end)
+ns.On("GROUP_LEFT", function() ns.FollowGroup() end)
+ns.On("PLAYER_ENTERING_WORLD", function() ns.FollowGroup() end)
+ns.On("ZONE_CHANGED_NEW_AREA", function() ns.FollowGroup() end)
 
 -- ------------------------------------------------------------------
 -- The debug report

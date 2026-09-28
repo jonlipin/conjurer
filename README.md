@@ -23,6 +23,23 @@ A Blizzard-style window with the Ready bar at the top and six sections you can f
 - **Low food and water alert**: an icon that shows when you run low, with a threshold for each.
 - **Options**: the chime, hold to cast, the minimap button, and the debug report.
 
+## Profiles
+
+Every group size has its own targets, on the tabs under the window:
+
+| Tab | When |
+|---|---|
+| Solo | on your own |
+| Party | a party of up to five |
+| Raid 10, Raid 20, Raid 40 | a raid of up to 10, 11 to 20, or more than 20 |
+| BG 10, BG 20, AV 40 | a battleground of up to 10 a side (Warsong Gulch), 11 to 20 (Arathi Basin), or more (Alterac Valley) |
+
+A battleground goes by its own size, as the game reports it, and falls back to the number of
+people in it. The profile follows your group by itself (**Switch profile with your group** in
+Options). Click a tab to use that profile instead; your pick holds until your group moves into
+another size. Each profile starts with amounts to suit its size at your best rank, and the sliders
+and **Fill targets from group** change the profile in use only.
+
 ## Ready and hold to cast
 
 WoW Forever can repeat a cast while you hold its key (Options > Combat > Press and Hold Casting).

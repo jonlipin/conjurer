@@ -718,6 +718,8 @@ ns.debugSources[#ns.debugSources + 1] = function()
 	local lines = {}
 	lines[#lines + 1] = "mage: " .. tostring(ns.isMage) .. "; key: " .. tostring(ns.db and ns.db.key)
 		.. " (" .. C.KeyText() .. "); Ready: " .. (C.armed and "lit" or "off")
+	lines[#lines + 1] = "profile: " .. ns.PROFILE_BY_KEY[ns.ProfileKey()].label .. "; follows your group: "
+		.. tostring(ns.db and ns.db.profileAuto) .. "; your group now: " .. ns.PROFILE_BY_KEY[ns.Bracket()].label
 	for _, name in ipairs(CVARS) do
 		lines[#lines + 1] = CVAR_LABEL[name] .. " (" .. name .. "): " .. tostring(GetSetting(name))
 			.. ((ns.db and ns.db.savedCVars and ns.db.savedCVars[name]) and (", will go back to " .. ns.db.savedCVars[name]) or "")

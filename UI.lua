@@ -11,7 +11,7 @@ local report = ns.report
 local UI = {}
 ns.UI = UI
 
-local WIDTH, HEIGHT = 600, 640
+local WIDTH, HEIGHT = 624, 640 -- wide enough for the eight profile tabs at Blizzard's 72 minimum
 local ROW_H = 28
 local SLIDER_W = 178
 
@@ -1022,6 +1022,15 @@ local function BuildOptions(body)
 			function() return ns.db.leaveCVarsOn end, function(v) ns.db.leaveCVarsOn = v end,
 			"Off: they go back to how you had them. On: they stay on." },
 		{ "Chime when a row reaches its target", function() return ns.db.chime end, function(v) ns.db.chime = v end, nil },
+		{ "Switch profile with your group", function() return ns.db.profileAuto end,
+			function(v)
+				ns.db.profileAuto = v
+				if v then
+					ns.db.lastBracket = nil
+					ns.FollowGroup()
+				end
+			end,
+			"Solo, party, raid of 10, 20 or 40, or a battleground by its size. A profile tab you click holds until your group changes size." },
 		{ "Show the minimap button", function() return ns.db.minimap.shown end,
 			function(v) ns.db.minimap.shown = v if ns.Minimap then ns.Minimap.Apply() end end, nil },
 	}
@@ -1049,6 +1058,85 @@ end
 -- ------------------------------------------------------------------
 -- Building and laying out
 -- ------------------------------------------------------------------
+
+-- ------------------------------------------------------------------
+-- Profile tabs, hanging under the window like the character and spellbook tabs
+-- ------------------------------------------------------------------
+
+local tabs = {}
+local tabStyle
+
+local function BuildTabs()
+	tabStyle = "PanelTabButtonTemplate"
+	for i, def in ipairs(ns.PROFILES) do
+		local ok, tab = pcall(CreateFrame, "Button", "ConjurerFrameTab" .. i, frame, "PanelTabButtonTemplate")
+		if not (ok and tab and tab.Text and tab.Left) then
+			if ok and tab then tab:Hide() end
+			tabStyle = "plain"
+			tab = CreateFrame("Button", "ConjurerFrameTabPlain" .. i, frame)
+			tab:SetSize(72, 24)
+			tab.bg = tab:CreateTexture(nil, "BACKGROUND")
+			tab.bg:SetAllPoints()
+			tab.bg:SetColorTexture(0.12, 0.1, 0.07, 0.95)
+			local fs = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			fs:SetPoint("CENTER")
+			tab:SetFontString(fs)
+			tab.Text = fs
+			local hl = tab:CreateTexture(nil, "HIGHLIGHT")
+			hl:SetAllPoints()
+			hl:SetColorTexture(1, 1, 1, 0.1)
+		end
+		tab:SetID(i)
+		tab:SetText(def.label)
+		tab:ClearAllPoints()
+		if i == 1 then
+			tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 12, 2)
+		else
+			tab:SetPoint("TOPLEFT", tabs[i - 1], "TOPRIGHT", 3, 0)
+		end
+		tab:SetScript("OnClick", Guard("profile tab", function()
+			Sound("IG_CHARACTER_INFO_TAB", 841)
+			ns.SetProfile(def.key, "picked")
+		end))
+		tab:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			GameTooltip:SetText(def.label .. " profile", 1, 1, 1)
+			GameTooltip:AddLine(def.tip, nil, nil, nil, true)
+			GameTooltip:AddLine("Its own targets for every rank of water and food.", 0.8, 0.8, 0.8, true)
+			if ns.Bracket() == def.key then GameTooltip:AddLine("Your group is this size now.", 0.4, 0.85, 0.4) end
+			if ns.db.profileAuto then
+				GameTooltip:AddLine("The profile follows your group by itself; one you click holds until your group changes size.",
+					0.6, 0.85, 1, true)
+			end
+			GameTooltip:Show()
+		end)
+		tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		tabs[i] = tab
+	end
+	if tabStyle == "PanelTabButtonTemplate" then
+		frame.numTabs = #tabs
+		for _, tab in ipairs(tabs) do
+			if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0, nil, 72) end
+		end
+	end
+	report["profile tabs"] = tabStyle
+	-- Keep the tabs on screen along with the window.
+	if frame.SetClampRectInsets then frame:SetClampRectInsets(0, 0, 0, -30) end
+end
+
+local function RefreshTabs()
+	local index = ns.PROFILE_BY_KEY[ns.ProfileKey()].index
+	if tabStyle == "PanelTabButtonTemplate" and PanelTemplates_SetTab then
+		pcall(PanelTemplates_SetTab, frame, index)
+	else
+		for i, tab in ipairs(tabs) do
+			tab.selected = i == index
+			if tab.bg then
+				if i == index then tab.bg:SetColorTexture(0.35, 0.28, 0.12, 1) else tab.bg:SetColorTexture(0.12, 0.1, 0.07, 0.95) end
+			end
+		end
+	end
+end
 
 local function BuildScroll()
 	local inset = frame.insetFrame
@@ -1089,6 +1177,7 @@ local function Build()
 	Place()
 	BuildReadyBar()
 	BuildScroll()
+	BuildTabs()
 
 	for _, def in ipairs(SECTIONS) do
 		local s = { def = def }
@@ -1127,11 +1216,11 @@ local function Build()
 		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture,
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
-		settingsState = settingsState, settingsButton = settingsButton,
+		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs,
 	}
 	local used = {}
 	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
-		"section header art", "ready glow", "icon button art" }) do
+		"section header art", "ready glow", "icon button art", "profile tabs" }) do
 		used[#used + 1] = key .. " " .. tostring(report[key])
 	end
 	ns.Log("window built: " .. table.concat(used, "; "))
@@ -1222,6 +1311,7 @@ function UI.Refresh()
 		keyHint:SetText("the key you hold")
 	end
 
+	RefreshTabs()
 	RefreshRanks("water")
 	RefreshRanks("food")
 	for _, r in ipairs(shareRows) do r.Sync() end
