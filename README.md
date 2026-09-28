@@ -100,6 +100,23 @@ every rank you're high enough to use and only alerts for what you can conjure.
 - Click an icon to open Conjurer, right-click it to start or stop conjuring, and drag it wherever
   you like (**Show it to move it** shows it so you can). A sound when it appears is optional.
 
+## The announce button
+
+An optional button you can put anywhere on screen (turn it on in the **Announce button** section).
+One click tells your group to trade you for food and water, with how much you have left:
+
+> Mage food and water here! Trade me for yours. I have 120 Crystal Water (55+), 40 Sparkling Water
+> (45+) and 60 Cinnamon Roll (55+).
+
+- It goes to your battleground or instance group when you're in one, else your raid, else your
+  party. The section shows exactly what would be sent, and where, before you click.
+- The message is yours to word: `{stock}` becomes everything you have, `{water}` and `{food}` each
+  kind on its own. **Reset text** brings back the default.
+- By default it only shows while you're in a group. It won't send more than once every 10 seconds,
+  and only when you click it.
+- Right-click it for Conjurer's settings, drag it to move it (**Show it to move it** shows it so
+  you can).
+
 ## Commands
 
 - `/conjure` opens the window.

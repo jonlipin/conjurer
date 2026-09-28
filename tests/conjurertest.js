@@ -16,7 +16,7 @@ const { lua, lauxlib, lualib, to_luastring } = require('fengari');
 let DIR = process.argv.slice(2).find(a => !a.startsWith('--')) || path.resolve(__dirname, '..');
 DIR = DIR.replace(/\\/g, '/');
 if (!DIR.endsWith('/')) DIR += '/';
-const files = ['Core.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'UI.lua', 'Alert.lua', 'Minimap.lua'];
+const files = ['Core.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'UI.lua', 'Alert.lua', 'Announce.lua', 'Minimap.lua'];
 
 const stub = String.raw`
 local unpack = unpack or table.unpack
@@ -137,7 +137,7 @@ for _, a in ipairs({ "Options_ListExpand_Left", "_Options_ListExpand_Middle", "O
   "UI-HUD-ActionBar-IconFrame-Down", "UI-HUD-ActionBar-IconFrame-Mouseover", "UI-HUD-ActionBar-Proc-Loop-Flipbook",
   "classicon-mage", "classicon-priest", "classicon-warrior", "classicon-hunter", "classicon-warlock",
   "charactercreate-customize-playbutton", "charactercreate-customize-stopbutton",
-  "gm-icon-settings", "gm-icon-settings-pressed", "gm-icon-settings-hover" }) do
+  "gm-icon-settings", "gm-icon-settings-pressed", "gm-icon-settings-hover", "communities-icon-chat" }) do
   KNOWN_ATLASES[a] = true
 end
 C_Texture = { GetAtlasInfo = function(a) if BAD_ATLAS then return nil end return KNOWN_ATLASES[a] and { width = 10 } or nil end }
@@ -159,6 +159,7 @@ function CreateFrame(kind, name, parent, template)
     f.SetPortraitToAsset = function(s, icon) s.PortraitContainer.portrait.texture = icon end
   end
   if template == "UIPanelButtonTemplate" then f.fontString = obj("fontstring") end
+  if template == "CooldownFrameTemplate" then f.SetCooldown = function(s, start, duration) s.cd = { start, duration } end end
   if template == "PanelTabButtonTemplate" then
     f.Text = obj("fontstring") f.Left = obj("texture") f.Right = obj("texture")
     parent.Tabs = parent.Tabs or {}
@@ -493,6 +494,18 @@ function UnitLevel(unit) if unit == "player" then return PLAYER_LEVEL end local 
 function UnitIsConnected(unit) local m = MemberFor(unit) if m then return m.connected ~= false end return true end
 function CheckInteractDistance(unit) local m = MemberFor(unit) return m and m.near ~= false end
 function GetRaidRosterInfo(i) local m = GROUP[i] return m and m.name, 0, m and m.sub or 1 end
+LE_PARTY_CATEGORY_HOME, LE_PARTY_CATEGORY_INSTANCE = 1, 2
+function IsInGroup(category)
+  if category == LE_PARTY_CATEGORY_INSTANCE then return (INSTANCE and INSTANCE.inside and INSTANCE.kind == "pvp" and #GROUP > 0) and true or false end
+  return #GROUP > 0
+end
+
+-- Chat: what was sent, and a switch to make the client refuse it.
+SENT = {}
+C_ChatInfo = { SendChatMessage = function(text, channel)
+  if REFUSE_CHAT then error("blocked by the client") end
+  SENT[#SENT + 1] = { text = text, channel = channel }
+end }
 
 -- Macros: 120 general slots, then 30 for the character, as on this client.
 Constants = { MacroConsts = { MAX_ACCOUNT_MACROS = 120, MAX_CHARACTER_MACROS = 30 } }
@@ -596,7 +609,12 @@ function SelectedTab()
   if NS.report["profile tabs"] == "PanelTabButtonTemplate" then return ConjurerFrame.selectedTab end
   for i, tab in ipairs(NS.UI.parts.tabs) do if tab.selected then return i end end
 end
-function Click(button, which) button.scripts.OnClick(button, which or "LeftButton") RunTimers(0) end
+-- As in the game, a check button flips its own state before its click handler runs.
+function Click(button, which)
+  if button.kind == "CheckButton" then button.checked = not button.checked end
+  button.scripts.OnClick(button, which or "LeftButton")
+  RunTimers(0)
+end
 
 -- A hold, the way the client behaved in the first in-game test (log of 2026-09-28): the key goes
 -- down and the game casts what the button holds. Just before each cast ends it queues the next
@@ -1348,6 +1366,108 @@ ns.db.collapsed.alert = false
 ns.db.alert.water = 20
 UI.Refresh()
 
+-- ---- The announce button ----------------------------------------------------
+local An = ns.Announce
+if C.armed then C.Disarm() end
+GROUP, RAID, INSTANCE = {}, false, nil
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+UI.Show() RunTimers(0)
+local AB = P.sections.announce.body
+check("the announce button is off until you turn it on", ns.db.announce.shown == false and (ConjurerAnnounce == nil or not ConjurerAnnounce.shown))
+Click(AB.shownCheck)
+check("turned on, it waits until you're in a group", ns.db.announce.shown and (ConjurerAnnounce == nil or not ConjurerAnnounce.shown))
+GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+check("in a party it shows", ConjurerAnnounce and ConjurerAnnounce.shown)
+check("with a chat bubble on your best water", ConjurerAnnounce.icon.texture == "itemicon:8079"
+  and (ConjurerAnnounce.badge.atlas == "communities-icon-chat" or (BARE and not ConjurerAnnounce.badge.shown)))
+ClearBags()
+AddItems(8079, 45)
+AddItems(8078, 20)
+AddItems(22895, 20)
+SENT = {}
+Click(ConjurerAnnounce)
+check("a click tells the party", #SENT == 1 and SENT[1].channel == "PARTY")
+check("what you have left, best rank first, with the level each needs", SENT[1].text
+  == "Mage food and water here! Trade me for yours. I have 45 Crystal Water (55+), 20 Sparkling Water (45+) and 20 Cinnamon Roll (55+).", SENT[1].text)
+check("the button shows its cooldown", BARE or (ConjurerAnnounce.cooldown and ConjurerAnnounce.cooldown.cd and ConjurerAnnounce.cooldown.cd[2] == 10))
+Click(ConjurerAnnounce)
+check("not twice in a row", #SENT == 1 and ChatWith("Announced a moment ago") == 1)
+fire("CHAT_MSG_PARTY", SENT[1].text, "Vatik") RunTimers(0)
+check("the log says it reached the chat", table.concat(ConjurerLog.entries, "\n"):find("announce seen in chat (CHAT_MSG_PARTY)", 1, true) ~= nil)
+RunTimers(11)
+RAID = true
+GROUP = { { unit = "raid1", guid = "R1", name = "R1", level = 60, class = "MAGE" }, { unit = "raid2", guid = "R2", name = "R2", level = 60, class = "MAGE" } }
+Click(ConjurerAnnounce)
+check("in a raid it tells the raid", SENT[2] and SENT[2].channel == "RAID")
+RunTimers(11)
+INSTANCE = { inside = true, kind = "pvp", max = 10 }
+Click(ConjurerAnnounce)
+check("in a battleground it tells the battleground", SENT[3] and SENT[3].channel == "INSTANCE_CHAT")
+INSTANCE, RAID = nil, false
+GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+P.announceBox:SetText("Water: {water}. Food: {food}.")
+P.announceBox.scripts.OnTextChanged(P.announceBox, true) RunTimers(0)
+check("typing the message saves it", ns.db.announce.message == "Water: {water}. Food: {food}.")
+check("the preview fills it in", P.announcePreview.text:find("Sends to your party: |cffffffffWater: 45 Crystal Water (55+), 20 Sparkling Water (45+). Food: 20 Cinnamon Roll (55+).", 1, true) ~= nil,
+  P.announcePreview.text)
+P.announceBox:SetText("set by the addon, not typed")
+P.announceBox.scripts.OnTextChanged(P.announceBox, false)
+check("a change the addon makes itself is not saved as yours", ns.db.announce.message == "Water: {water}. Food: {food}.")
+RunTimers(11)
+ClearBags()
+AddItems(8079, 45)
+Click(ConjurerAnnounce)
+check("a kind you're out of says so", SENT[4] and SENT[4].text == "Water: 45 Crystal Water (55+). Food: no food.", SENT[4] and SENT[4].text)
+ns.db.announce.message = string.rep("a", 300) .. " {stock}"
+check("a long message is cut to the chat's 255", #An.Message() == 255 and An.Message():sub(-3) == "...")
+Click(AB.shownCheck) Click(AB.shownCheck)
+ns.db.announce.message = "x"
+UI.Refresh()
+for _, kid in ipairs(AB.kids) do if kid.text == "Reset text" then Click(kid) end end
+check("Reset text brings back the default", ns.db.announce.message == nil and P.announceBox.text == An.DEFAULT_MESSAGE)
+RunTimers(11)
+ClearBags()
+local before = #SENT
+Click(ConjurerAnnounce)
+check("with nothing to offer it says so and sends nothing", #SENT == before and ChatWith("You have no conjured food or water to offer yet.") == 1)
+AddItems(8079, 45)
+ConjurerFrame:Hide()
+ConjurerAnnounce.scripts.OnClick(ConjurerAnnounce, "RightButton") RunTimers(0)
+check("right-click opens Conjurer", ConjurerFrame.shown)
+ns.db.announce.point = nil
+ConjurerAnnounce.scripts.OnDragStop(ConjurerAnnounce)
+check("dragging it saves where it is", type(ns.db.announce.point) == "table")
+REFUSE_CHAT = true
+RunTimers(11)
+Click(ConjurerAnnounce)
+check("a refused message is logged and said", table.concat(ConjurerLog.entries, "\n"):find("announce to PARTY: failed", 1, true) ~= nil
+  and ChatWith("The game didn't let Conjurer send that.") == 1)
+REFUSE_CHAT = nil
+GROUP = {}
+fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+check("alone, it hides again", not ConjurerAnnounce.shown)
+Click(AB.groupCheck)
+check("with Only while you're in a group off, it stays up alone", ns.db.announce.groupOnly == false and ConjurerAnnounce.shown)
+RunTimers(11)
+before = #SENT
+Click(ConjurerAnnounce)
+check("but alone there's no one to tell", #SENT == before and ChatWith("You're not in a party, raid or battleground") == 1)
+Click(AB.groupCheck)
+Click(AB.shownCheck)
+check("switched off, it goes", not ConjurerAnnounce.shown)
+Click(P.announceMove)
+check("Show it to move it shows it anyway", ConjurerAnnounce.shown and P.announceMove.text == "Done moving")
+ConjurerFrame:Hide()
+check("closing the window ends moving", not An.preview and not ConjurerAnnounce.shown)
+UI.Show() RunTimers(0)
+ns.db.collapsed.announce = true
+UI.Refresh()
+check("closed, the section sums it up", P.sections.announce.header.Summary.text == "off")
+ns.db.collapsed.announce = false
+UI.Refresh()
+
 -- ---- The eat and drink macro ----------------------------------------------
 local Mac = ns.Macro
 ClearBags()
@@ -1576,7 +1696,8 @@ function number(L, name) {
 const bareTemplates = ['ButtonFrameTemplate', 'PortraitFrameTemplate', 'BackdropTemplate', 'UIPanelButtonTemplate',
   'UIPanelCloseButton', 'UICheckButtonTemplate', 'ChatConfigCheckButtonTemplate', 'MinimalSliderWithSteppersTemplate',
   'MinimalSliderTemplate', 'UISliderTemplate', 'OptionsSliderTemplate', 'ConjurerScrollFrameTemplate',
-  'UIPanelScrollFrameTemplate', 'InsetFrameTemplate', 'SecureHandlerStateTemplate', 'PanelTabButtonTemplate'];
+  'UIPanelScrollFrameTemplate', 'InsetFrameTemplate', 'SecureHandlerStateTemplate', 'PanelTabButtonTemplate',
+  'InputBoxTemplate', 'CooldownFrameTemplate'];
 const BARE = process.argv.includes('--bare');
 const pre = (BARE ? 'BARE=true\nBAD_ATLAS=true\nBAD_TEMPLATES={' + bareTemplates.map(t => t + '=true').join(',') + '}\n' : '')
   + (process.argv.includes('--verbose') ? 'VERBOSE=true\n' : '');

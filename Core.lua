@@ -85,6 +85,7 @@ local DEFAULTS = {
 	handed = {},
 	macro = { perCharacter = true, auto = false, made = false },
 	alert = { enabled = true, water = 20, food = 10, sound = false, when = "out" },
+	announce = { shown = false, groupOnly = true },
 }
 
 local function Merge(into, from)
@@ -557,7 +558,7 @@ ns.On("PLAYER_LOGIN", function()
 	ns.Stage("login")
 	ns.SeedTargets()
 	ns.FollowGroup(true)
-	for _, module in ipairs({ ns.Conjure, ns.Trade, ns.Macro, ns.UI, ns.Alert, ns.Minimap }) do
+	for _, module in ipairs({ ns.Conjure, ns.Trade, ns.Macro, ns.UI, ns.Alert, ns.Announce, ns.Minimap }) do
 		if module and module.Init then
 			local ok, err = pcall(module.Init)
 			if not ok then

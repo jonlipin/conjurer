@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: Conjurer
-## Notes: Mage food and water: conjure each rank to a target with hold to cast, trade shares by class to your party or raid, a one-button eat and drink macro, and an alert when you run low.|n|cff3fc7eb/conjure|r to open.
+## Notes: Mage food and water: conjure each rank to a target with hold to cast, trade shares by class to your party or raid, a one-button eat and drink macro, an alert when you run low, and a button that announces what you have to trade.|n|cff3fc7eb/conjure|r to open.
 ## Author: jonlipin
 ## Version: 1.0.0
 ## LoadSavedVariablesFirst: 1
@@ -18,4 +18,5 @@ Trade.lua
 Macro.lua
 UI.lua
 Alert.lua
+Announce.lua
 Minimap.lua

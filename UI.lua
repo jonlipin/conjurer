@@ -33,9 +33,11 @@ local SECTIONS = {
 	{ key = "group", title = "Group" },
 	{ key = "macro", title = "Eat and drink macro" },
 	{ key = "alert", title = "Low food and water alert" },
+	{ key = "announce", title = "Announce button" },
 	{ key = "options", title = "Options" },
 }
 local macroButton, macroText, macroStatus, macroMake, alertMove
+local announceBox, announcePreview, announceMove
 
 local function Guard(label, fn) return ns.Guard(label, fn) end
 
@@ -665,6 +667,7 @@ local SUMMARY = {
 	group = function() return ns.Trade.Summary() end,
 	macro = function() return ns.Macro.Summary() end,
 	alert = function() return ns.Alert.Summary() end,
+	announce = function() return ns.Announce.Summary() end,
 	options = function()
 		return "Press and Hold Casting " .. (ns.Conjure.HoldReady() and "on" or "off")
 	end,
@@ -997,6 +1000,101 @@ local function BuildAlert(body)
 	body:SetHeight(y + 4)
 end
 
+local function NewEditBox(parent, width)
+	local ok, box = pcall(CreateFrame, "EditBox", nil, parent, "InputBoxTemplate")
+	if ok and box then
+		report["edit box template"] = "InputBoxTemplate"
+	else
+		box = CreateFrame("EditBox", nil, parent)
+		box:SetFontObject("ChatFontNormal")
+		local bg = box:CreateTexture(nil, "BACKGROUND")
+		bg:SetPoint("TOPLEFT", -4, 2)
+		bg:SetPoint("BOTTOMRIGHT", 4, -2)
+		bg:SetColorTexture(0, 0, 0, 0.6)
+		report["edit box template"] = "plain"
+	end
+	box:SetSize(width, 20)
+	box:SetAutoFocus(false)
+	if box.SetMaxLetters then box:SetMaxLetters(255) end
+	return box
+end
+
+local function BuildAnnounce(body)
+	local y = 4
+	local shown = NewCheck(body, "Show the announce button",
+		function() return ns.db.announce.shown end,
+		function(v) ns.db.announce.shown = v ns.Announce.Update() end,
+		"A button you can put anywhere. One click tells your party, raid or battleground to trade you for food and water, with how much you have left.")
+	shown:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+	y = y + 26
+	local groupOnly = NewCheck(body, "Only while you're in a group",
+		function() return ns.db.announce.groupOnly end,
+		function(v) ns.db.announce.groupOnly = v ns.Announce.Update() end, nil)
+	groupOnly:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+	body.shownCheck, body.groupCheck = shown, groupOnly
+	y = y + 30
+
+	local label = Text(body, "GameFontHighlight")
+	label:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y - 3)
+	label:SetText("Message")
+	announceBox = NewEditBox(body, 440)
+	announceBox:SetPoint("TOPLEFT", body, "TOPLEFT", 84, -y)
+	announceBox:SetScript("OnTextChanged", Guard("announce text", function(self, userInput)
+		if not userInput then return end
+		ns.db.announce.message = self:GetText()
+		UI.Refresh()
+	end))
+	announceBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+	announceBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	syncers[#syncers + 1] = function()
+		if announceBox.HasFocus and announceBox:HasFocus() then return end
+		announceBox:SetText(ns.db.announce.message or ns.Announce.DEFAULT_MESSAGE)
+	end
+	y = y + 24
+	local hint = Text(body, "GameFontDisableSmall")
+	hint:SetPoint("TOPLEFT", body, "TOPLEFT", 84, -y)
+	hint:SetText("{stock} becomes what you have left; {water} and {food} each kind.")
+	y = y + 18
+	announcePreview = Text(body, "GameFontHighlightSmall")
+	announcePreview:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y)
+	announcePreview:SetWidth(540)
+	announcePreview:SetWordWrap(true)
+	announcePreview:SetHeight(28)
+	y = y + 32
+
+	local send = NewButton(body, "Announce now", 120, 22)
+	send:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -y)
+	send:SetScript("OnClick", Guard("Announce now", function() ns.Announce.Send() UI.Refresh() end))
+	announceMove = NewButton(body, "Show it to move it", 150, 22)
+	announceMove:SetPoint("LEFT", send, "RIGHT", 8, 0)
+	announceMove:SetScript("OnClick", Guard("announce move", function()
+		ns.Announce.SetPreview(not ns.Announce.preview)
+		UI.Refresh()
+	end))
+	local reset = NewButton(body, "Reset text", 100, 22)
+	reset:SetPoint("LEFT", announceMove, "RIGHT", 8, 0)
+	reset:SetScript("OnClick", Guard("announce reset", function()
+		ns.db.announce.message = nil
+		UI.Refresh()
+	end))
+	y = y + 28
+	body:SetHeight(y + 4)
+end
+
+local function RefreshAnnounce()
+	local A = ns.Announce
+	local text = A.Message()
+	local channel = A.Channel()
+	if not text then
+		announcePreview:SetText("Nothing to offer yet: conjure some food or water first.")
+	elseif channel then
+		announcePreview:SetText("Sends to " .. A.CHANNEL_LABEL[channel] .. ": |cffffffff" .. text .. "|r")
+	else
+		announcePreview:SetText("Not in a group now. It would say: |cffffffff" .. text .. "|r")
+	end
+	announceMove:SetText(A.preview and "Done moving" or "Show it to move it")
+end
+
 local settingsState, settingsButton
 
 local function BuildOptions(body)
@@ -1194,6 +1292,7 @@ local function Build()
 	groupEmpty:SetText("You're not in a group. Shares go to your party or raid when you are.")
 	BuildMacro(sections.macro.body)
 	BuildAlert(sections.alert.body)
+	BuildAnnounce(sections.announce.body)
 	BuildOptions(sections.options.body)
 
 	-- Header buttons: they sit left of the header's own +/- art.
@@ -1217,6 +1316,7 @@ local function Build()
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
 		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs,
+		announceBox = announceBox, announcePreview = announcePreview, announceMove = announceMove,
 	}
 	local used = {}
 	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
@@ -1237,6 +1337,7 @@ local function Build()
 		if ticker then ticker:Cancel() ticker = nil end
 		if capturing and UI.EndCapture then UI.EndCapture() end
 		if ns.Alert and ns.Alert.preview then ns.Alert.SetPreview(false) end
+		if ns.Announce and ns.Announce.preview then ns.Announce.SetPreview(false) end
 	end)
 	ns.Stage("idle")
 end
@@ -1319,6 +1420,7 @@ function UI.Refresh()
 	RefreshGroup(sections.group.body)
 	RefreshMacro()
 	alertMove:SetText(ns.Alert.preview and "Done moving" or "Show it to move it")
+	RefreshAnnounce()
 
 	local held, down = C.SettingState()
 	local function Word(v)
