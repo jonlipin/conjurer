@@ -119,7 +119,8 @@ mouse button as your key.
 ## Trading
 
 When a group member opens a trade with you (or you click Trade on their row), their share goes into
-the trade window: the best rank they can use, in whole stacks where possible. A share that isn't
+the trade window: the best rank they can use, in whole stacks where possible. Loose stacks of what
+they're getting are merged first, so a 13 and a 7 go over as one stack of 20. A share that isn't
 whole stacks is split inside your bags first and then moved in. You still press the game's own
 Trade button to finish. What was handed over is counted only once the trade completes.
 
@@ -143,8 +144,8 @@ Hovering a friendly player shows what Conjurer would hand them, and whether they
 
 ## Tidy bags
 
-After you conjure, when Ready goes off and when a trade closes, loose stacks of conjured food and
-water are merged into whole ones, one move at a time, once nothing else is going on: out of
+After you conjure, when Ready goes off, when a trade closes and before a trade is filled, loose
+stacks of conjured food and water are merged into whole ones, one move at a time, once nothing else is going on: out of
 combat, Ready off, no trade open, nothing on the cursor, nothing being cast. Eating and drinking
 don't set it off. Untick **Tidy conjured stacks in your bags** in Options to leave your bags alone.
 

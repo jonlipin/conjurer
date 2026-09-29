@@ -1323,7 +1323,7 @@ local function BuildOptions(body)
 			"Hovering a friendly player adds what Conjurer would hand them, and whether they've had it." },
 		{ "Tidy conjured stacks in your bags", function() return ns.db.tidy end,
 			function(v) ns.db.tidy = v if v and ns.Bags then ns.Bags.RequestTidy() end end,
-			"After you conjure, Ready goes off or a trade closes, loose stacks of conjured food and water are merged into whole ones, out of combat, while you're not conjuring, trading or casting. Eating and drinking don't set it off." },
+			"After you conjure, Ready goes off or a trade closes, and before a trade is filled, loose stacks of conjured food and water are merged into whole ones, out of combat. Eating and drinking don't set it off." },
 		{ "Conjure for your group's size", function() return ns.db.profileAuto end,
 			function(v)
 				-- Off, Ready keeps to the profile it was on until you click another tab.

@@ -115,15 +115,23 @@ function B.Busy()
 	return nil
 end
 
--- The next merge: an item and two of its stacks that aren't full, smallest and biggest.
-function B.NextMerge()
+-- Whether a bag slot is waiting on the server (a move not answered yet).
+function B.Locked(bag, slot)
+	local info = B.SlotInfo(bag, slot)
+	return info ~= nil and info.isLocked and true or false
+end
+
+-- The next merge: an item and two of its stacks that aren't full, smallest and biggest. Given a
+-- set of item ids, only those.
+function B.NextMerge(items)
 	for _, list in ipairs({ ns.WATER, ns.FOOD }) do
 		for _, entry in ipairs(list) do
 			local partial = {}
-			for _, s in ipairs(B.Stacks(entry.item)) do
+			if items and not items[entry.item] then partial = nil end
+			for _, s in ipairs(partial and B.Stacks(entry.item) or {}) do
 				if s.count < ns.STACK then partial[#partial + 1] = s end
 			end
-			if #partial >= 2 then return entry, partial[#partial], partial[1] end
+			if partial and #partial >= 2 then return entry, partial[#partial], partial[1] end
 		end
 	end
 	return nil
@@ -137,17 +145,23 @@ function B.TidyStep()
 		B.tidyWanted = false
 		return
 	end
+	if not B.MergeOnce(entry, from, to) then
+		-- Something about these bags won't take it: leave them alone for a while.
+		tidyPausedUntil = GetTime() + 60
+	end
+end
+
+-- One merge: the smaller stack picked up and dropped on the bigger. False when the bags refused it.
+function B.MergeOnce(entry, from, to, why)
 	ns.Stage("tidying " .. entry.name)
 	pcall(C_Container.PickupContainerItem, from.bag, from.slot)
 	if GetCursorInfo() then pcall(C_Container.PickupContainerItem, to.bag, to.slot) end
 	local refused = GetCursorInfo() ~= nil
-	if refused then
-		ClearCursor()
-		-- Something about these bags won't take it: leave them alone for a while.
-		tidyPausedUntil = GetTime() + 60
-	end
+	if refused then ClearCursor() end
 	ns.Stage("idle")
-	ns.Log("tidy: " .. from.count .. " " .. entry.name .. " onto " .. to.count .. (refused and " (refused, pausing)" or ""))
+	ns.Log("tidy: " .. from.count .. " " .. entry.name .. " onto " .. to.count .. (why and (" " .. why) or "")
+		.. (refused and " (refused)" or ""))
+	return not refused
 end
 
 function B.TidySoon()

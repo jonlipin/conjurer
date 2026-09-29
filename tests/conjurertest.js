@@ -481,8 +481,10 @@ C_Container = {
       local move = math.min(20 - s.stackCount, from.stackCount)
       s.stackCount = s.stackCount + move
       from.stackCount = from.stackCount - move
-      from.isLocked = false
       if from.stackCount <= 0 then BAGS[CURSOR.from[1]][CURSOR.from[2]] = nil end
+      -- Both stacks wait on the server for a moment, as in game.
+      s.isLocked, from.isLocked = true, true
+      C_Timer.After(0.3, function() s.isLocked, from.isLocked = false, false end)
       CURSOR = nil
     end
   end,
@@ -1841,6 +1843,48 @@ RunTimers(5)
 check("Again fills her whole share again", TRADE[1] and TRADE[2] and TRADE[3] and TRADE[3].itemID == 22895)
 TradeCancel()
 
+-- Loose stacks are merged before a fill, so whole stacks go over.
+TRADE_PARTNER = "Player-70-E1"
+ns.db.handed["Player-70-E1"] = nil
+ClearBags()
+BAGS[0][1] = { itemID = 8079, stackCount = 13 }
+BAGS[0][2] = { itemID = 8079, stackCount = 7 }
+BAGS[0][3] = { itemID = 8079, stackCount = 20 }
+BAGS[0][4] = { itemID = 22895, stackCount = 20 }
+logMark = #ConjurerLog.entries
+fire("TRADE_SHOW")
+RunTimers(8)
+check("before a fill, loose stacks of what's given are merged, so whole stacks go over", TRADE[1] and TRADE[2] and TRADE[3] and not TRADE[4]
+  and TRADE[1].itemID == 8079 and TRADE[1].count == 20 and TRADE[2].itemID == 8079 and TRADE[2].count == 20 and TRADE[3].itemID == 22895,
+  (TRADE[1] and TRADE[1].count or "-") .. " " .. (TRADE[2] and TRADE[2].count or "-") .. " " .. (TRADE[3] and TRADE[3].count or "-"))
+check("the log says so", LoggedSince("trade: tidying stacks first") and LoggedSince("tidy: 7 Conjured Crystal Water onto 13 before the trade")
+  and LoggedSince("fill for Elyse starting (stacks tidied)"))
+check("nothing left on the cursor", CURSOR == nil)
+TradeCancel() RunTimers(1)
+-- Tidying switched off: the stacks go as they are.
+ClearBags()
+BAGS[0][1] = { itemID = 8079, stackCount = 13 }
+BAGS[0][2] = { itemID = 8079, stackCount = 7 }
+BAGS[0][3] = { itemID = 8079, stackCount = 20 }
+BAGS[0][4] = { itemID = 22895, stackCount = 20 }
+ns.db.tidy = false
+fire("TRADE_SHOW")
+RunTimers(8)
+check("with tidying off, the stacks go as they are", TRADE[1] and TRADE[1].count == 20 and TRADE[2] and TRADE[2].count == 13
+  and TRADE[3] and TRADE[3].count == 7 and TRADE[4] and TRADE[4].itemID == 22895)
+TradeCancel() RunTimers(1)
+ns.db.tidy = true
+-- + Water merges first too.
+TRADE_PARTNER = "Player-70-STRANGER"
+ClearBags()
+BAGS[0][1] = { itemID = 8079, stackCount = 13 }
+BAGS[0][2] = { itemID = 8079, stackCount = 7 }
+fire("TRADE_SHOW") RunTimers(1)
+Click(ConjurerTradeWater) RunTimers(4)
+check("+ Water merges loose stacks first and hands over a whole one", TRADE[1] and TRADE[1].itemID == 8079 and TRADE[1].count == 20 and not TRADE[2])
+TradeCancel() RunTimers(1)
+TRADE_PARTNER = "Player-70-E1"
+
 -- The trade window's own row: a stack at a time, and clearing it.
 TRADE_PARTNER = "Player-70-STRANGER"
 ClearBags()
@@ -2119,7 +2163,7 @@ SlashCmdList.CONJURER("ready")
 check("/conjure ready works too", C.armed)
 SlashCmdList.CONJURER("ready")
 SlashCmdList.CONJURER("debug")
-check("/conjure debug prints the report", ChatWith("Conjurer 1.2.0 debug report") == 1 and ChatWith("refused actions: none") == 1)
+check("/conjure debug prints the report", ChatWith("Conjurer 1.2.1 debug report") == 1 and ChatWith("refused actions: none") == 1)
 check("the report names the borrowed button", ChatWith("button to borrow: Action Bar") == 1)
 check("nothing was refused in the whole run", #ns.refused == 0)
 fire("ADDON_ACTION_FORBIDDEN", "Conjurer", "UNKNOWN()")
@@ -2492,7 +2536,7 @@ local L = ConjurerLog
 local all = table.concat(L.entries, "\n")
 check("the log is an account-wide saved variable", type(L) == "table" and type(L.entries) == "table" and L.session == 1)
 check("lines carry the session and the time", L.entries[1]:match("^#1 %d%d:%d%d:%d%d ") ~= nil, L.entries[1])
-check("it starts with the session", all:find("session start: Conjurer 1.2.0, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
+check("it starts with the session", all:find("session start: Conjurer 1.2.1, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
 check("it has the window's templates", all:find("window built: window template ButtonFrameTemplate", 1, true) ~= nil)
 check("it has Ready being lit", all:find("Ready is lit; hold to cast on", 1, true) ~= nil)
 check("it has the binding", all:find("bind F -> MULTIACTIONBAR7BUTTON12", 1, true) ~= nil)
@@ -2754,7 +2798,7 @@ let svText = null;
   const log = data.ConjurerLog || {};
   check('the reader parses it', Array.isArray(log.entries) && log.entries.length === 1500, log.entries && log.entries.length);
   check('with the session number', log.session === 1);
-  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.2\.0 debug report/.test(log.report[0]));
+  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.2\.1 debug report/.test(log.report[0]));
   const { execFileSync } = require('child_process');
   const out = execFileSync(process.execPath, [DIR + 'tools/conjurer-log.js', '--file', tmp, '--last', '5'], { encoding: 'utf8' });
   check('the command prints the file and the lines', out.includes('Conjurer log: ' + tmp) && out.includes('filler 1600') && out.includes('--- debug report'));
@@ -2788,8 +2832,8 @@ let svText = null;
   const field = (text, name) => { const m = new RegExp('^## ' + name + ': *(.*)$', 'm').exec(text || ''); return m ? m[1].trim() : null; };
   check('the TOC is for this client', field(toc, 'Interface') === '16001');
   check('titled Conjurer', field(toc, 'Title') === 'Conjurer');
-  check('version 1.2.0', field(toc, 'Version') === '1.2.0');
-  check('the version matches the code', /ns\.version = "1\.2\.0"/.test(sources['Core.lua']));
+  check('version 1.2.1', field(toc, 'Version') === '1.2.1');
+  check('the version matches the code', /ns\.version = "1\.2\.1"/.test(sources['Core.lua']));
   check('per-character saved variables', field(toc, 'SavedVariablesPerCharacter') === 'ConjurerDB');
   const listed = toc.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('#')).map(l => l.trim());
   check('the TOC lists the XML and every Lua file in order', listed.join(',') === ['Conjurer.xml'].concat(files).join(','), listed.join(','));
@@ -2801,7 +2845,7 @@ let svText = null;
   const changelog = (read('CHANGELOG.md') || '').replace(/\r\n/g, '\n');
   const notes = (read('RELEASE-NOTES.md') || '').replace(/\r\n/g, '\n');
   const top = changelog.split(/\n(?=## )/).find(s => s.startsWith('## ')) || '';
-  check('the changelog opens on 1.2.0', /^## 1\.2\.0 - /.test(top), top.slice(0, 30));
+  check('the changelog opens on 1.2.1', /^## 1\.2\.1 - /.test(top), top.slice(0, 30));
   check('the release notes are that section and nothing else', notes.replace(/\s+$/, '') === top.replace(/\s+$/, ''));
   check('there is a licence', /MIT License/.test(read('LICENSE') || ''));
   check('the README names the slash command', /\/conjure/.test(read('README.md') || ''));

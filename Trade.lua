@@ -295,8 +295,42 @@ end
 -- Filling
 -- ------------------------------------------------------------------
 
-function T.Fill(m, full)
-	ns.Log("fill for " .. tostring(m and m.name) .. " starting" .. (full and " (whole share)" or ""))
+-- Before anything goes in, loose stacks of what's about to be given are merged, so whole stacks
+-- go over rather than a 13 and a 7 (the user's ask). One move at a time, each waited out until
+-- both stacks are answered, then the fill goes on. With tidying switched off the stacks stay as
+-- they are. True when it has started merging (and will carry on by itself).
+local function TidyFirst(items, andThen)
+	if not (ns.db.tidy and ns.Bags and ns.Bags.NextMerge(items)) then return false end
+	T.job = { tidying = true }
+	ns.Log("trade: tidying stacks first")
+	local moves = 0
+	local function Next()
+		if not (T.open and T.job and T.job.tidying) then return end
+		local entry, from, to = ns.Bags.NextMerge(items)
+		if not entry or moves >= 12 or GetCursorInfo() or not ns.Bags.MergeOnce(entry, from, to, "before the trade") then
+			T.job = nil
+			andThen()
+			return
+		end
+		moves = moves + 1
+		local waits = 0
+		local function Answered()
+			waits = waits + 1
+			if waits < 10 and (ns.Bags.Locked(from.bag, from.slot) or ns.Bags.Locked(to.bag, to.slot)) then
+				ns.After(0.2, Answered)
+			else
+				Next()
+			end
+		end
+		ns.After(0.2, Answered)
+	end
+	Next()
+	return true
+end
+
+function T.Fill(m, full, tidied)
+	ns.Log("fill for " .. tostring(m and m.name) .. " starting" .. (full and " (whole share)" or "")
+		.. (tidied and " (stacks tidied)" or ""))
 	if not T.open then
 		ns.Log("fill stopped: the trade window is not open")
 		return false, "the trade window is not open"
@@ -308,6 +342,11 @@ function T.Fill(m, full)
 	if T.job then
 		ns.Log("fill stopped: one is already running")
 		return false, "a fill is already running"
+	end
+	if not tidied then
+		local items = {}
+		for _, p in ipairs((T.Owed(m, full))) do items[p.entry.item] = true end
+		if TidyFirst(items, function() T.Fill(m, full, true) end) then return true end
 	end
 	local offer, free = T.ReadOffer()
 	local steps, short = {}, {}
@@ -485,11 +524,16 @@ end
 
 -- One stack of your best food or water the other side can use, your fullest first, into the next
 -- free slot: for someone who just asks for a stack. Shares don't come into it.
-function T.AddStack(kind)
+function T.AddStack(kind, tidied)
 	if not T.open or ns.InCombat() then return end
 	if T.job then
 		ns.Print("Wait a moment: Conjurer is still putting things in the trade window.")
 		return
+	end
+	if not tidied then
+		local items = {}
+		for _, e in ipairs(ns.KINDS[kind]) do items[e.item] = true end
+		if TidyFirst(items, function() T.AddStack(kind, true) end) then return end
 	end
 	local m = T.PartnerAsMember()
 	local _, free = T.ReadOffer()

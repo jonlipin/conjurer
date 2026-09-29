@@ -1,5 +1,3 @@
-## 1.2.0 - 2026-09-29
+## 1.2.1 - 2026-09-29
 
-- Click a water, food or mana gem icon in the window to conjure that exact item and rank: one cast, out of combat, no Ready or key needed.
-- The low alert's icons conjure what they show with a click too. Right-click still starts or stops Ready, and the cog opens Conjurer.
-- Tidying stacks now only follows a conjure, Ready going off or a trade closing; it no longer restacks every time you eat or drink.
+- Before the trade window is filled (by itself, with Give share, or with + Water and + Food), loose stacks of what's being handed over are merged first, so whole stacks go over instead of a 13 and a 7. With tidying switched off in Options they go as they are.
