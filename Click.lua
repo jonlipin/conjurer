@@ -182,6 +182,41 @@ function K.Refresh()
 end
 
 -- ------------------------------------------------------------------
+-- Icons that conjure what they show
+--
+-- A water, food or gem icon in the window, or on the low alert, conjures that very item and rank
+-- with a left click: one cast, out of combat, from the same template as the click button. The
+-- right button is left free (the alert uses it for Ready).
+-- ------------------------------------------------------------------
+
+-- A button that casts from a left click, or nil when the client lacks the template.
+function K.CastButton(name, parent)
+	local ok, b = pcall(CreateFrame, "Button", name, parent, "InsecureActionButtonTemplate")
+	if not (ok and b) then return nil end
+	b:SetAttribute("useOnKeyDown", false)
+	b.castable = true
+	return b
+end
+
+-- What its left click conjures, or nothing.
+function K.SetCast(b, entry)
+	if not (b and b.castable) then return end
+	b.castEntry = entry
+	b:SetAttribute("type1", entry and "spell" or nil)
+	b:SetAttribute("spell1", entry and entry.spell or nil)
+end
+
+-- The log line for a click on one.
+function K.LogCast(b, where)
+	local entry = b.castEntry
+	if ns.InCombat() then
+		ns.Log(where .. " click in combat: nothing (out of combat only)")
+	elseif entry then
+		ns.Log(where .. " click: conjure " .. entry.name .. " (" .. ns.Count(entry.item) .. " in your bags)")
+	end
+end
+
+-- ------------------------------------------------------------------
 -- Casts and arrivals
 -- ------------------------------------------------------------------
 

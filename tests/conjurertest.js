@@ -174,9 +174,11 @@ function CreateFrame(kind, name, parent, template)
   if template == "InsecureActionButtonTemplate" then
     f.scripts.OnClick = function(self, button, down)
       if InCombatLockdown() then return end
-      local kind = self.attributes.type
-      if kind == "spell" then CLICK_CASTS[#CLICK_CASTS + 1] = self.attributes.spell
-      elseif kind == "item" then CLICK_USES[#CLICK_USES + 1] = self.attributes.item end
+      local n = (button == "RightButton") and "2" or "1"
+      local function Attr(k) local v = self.attributes[k .. n] if v == nil then v = self.attributes[k] end return v end
+      local kind = Attr("type")
+      if kind == "spell" then CLICK_CASTS[#CLICK_CASTS + 1] = Attr("spell")
+      elseif kind == "item" then CLICK_USES[#CLICK_USES + 1] = Attr("item") end
     end
   end
   if template == "MinimalSliderWithSteppersTemplate" then
@@ -1190,6 +1192,37 @@ else
     and ns.report["click button"] == "none (no InsecureActionButtonTemplate)")
 end
 
+-- ---- Icons that conjure their own rank ---------------------------------------
+if not BARE then
+  if C.armed then C.Disarm() end
+  local row7 = P.rankRows.water[1]
+  check("a water row's icon conjures its own rank with a click", row7.cast and row7.cast.template == "InsecureActionButtonTemplate"
+    and row7.cast.attributes.type1 == "spell" and row7.cast.attributes.spell1 == 10140 and row7.cast.attributes.useOnKeyDown == false
+    and row7.icon.parent == row7.cast)
+  local iconCasts = #CLICK_CASTS
+  Click(row7.cast)
+  check("a click casts it, no Ready needed", #CLICK_CASTS == iconCasts + 1 and CLICK_CASTS[#CLICK_CASTS] == 10140 and not C.armed
+    and Logged("icon click: conjure Conjured Crystal Water"))
+  local wasAllRanks = ns.db.showAllRanks
+  ns.db.showAllRanks = true
+  UI.Refresh()
+  local row6 = P.rankRows.water[2]
+  Click(row6.cast)
+  check("a lower rank's icon conjures that rank", row6.entry.rank == 6 and CLICK_CASTS[#CLICK_CASTS] == 10139)
+  ns.db.showAllRanks = wasAllRanks
+  UI.Refresh()
+  Click(P.rankRows.food[1].cast)
+  check("a food icon its food", CLICK_CASTS[#CLICK_CASTS] == 28612)
+  check("and a gem's icon its gem", P.gemRows[1].cast and P.gemRows[1].cast.attributes.spell1 == 10054)
+  EnterCombatLockdown()
+  iconCasts = #CLICK_CASTS
+  Click(row7.cast)
+  check("in combat an icon casts nothing", #CLICK_CASTS == iconCasts and Logged("icon click in combat: nothing"))
+  COMBAT = false
+else
+  check("without the template the row icons are plain pictures", P.rankRows.water[1].cast == nil and P.rankRows.water[1].icon ~= nil)
+end
+
 -- ---- Out of mana: the key drinks your best water -------------------------------
 if C.armed then C.Disarm() end
 ClearBags()
@@ -2058,7 +2091,7 @@ SlashCmdList.CONJURER("ready")
 check("/conjure ready works too", C.armed)
 SlashCmdList.CONJURER("ready")
 SlashCmdList.CONJURER("debug")
-check("/conjure debug prints the report", ChatWith("Conjurer 1.1.0 debug report") == 1 and ChatWith("refused actions: none") == 1)
+check("/conjure debug prints the report", ChatWith("Conjurer 1.2.0 debug report") == 1 and ChatWith("refused actions: none") == 1)
 check("the report names the borrowed button", ChatWith("button to borrow: Action Bar") == 1)
 check("nothing was refused in the whole run", #ns.refused == 0)
 fire("ADDON_ACTION_FORBIDDEN", "Conjurer", "UNKNOWN()")
@@ -2165,16 +2198,24 @@ check("its stop button stops conjuring, and then the alert goes", not C.armed an
 ClearBags()
 AddItems(22895, 20)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
-ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "RightButton") RunTimers(0)
-check("right-clicking an icon does the same", C.armed)
-ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "RightButton") RunTimers(0)
+local castsBefore = #CLICK_CASTS
+Click(ConjurerAlertWater, "RightButton")
+check("right-clicking an icon does the same, and casts nothing itself", C.armed and #CLICK_CASTS == castsBefore)
+Click(ConjurerAlertWater, "RightButton")
 check("and again stops", not C.armed)
 ConjurerFrame:Hide()
 Click(ConjurerAlertSettings)
 check("the cog opens Conjurer", ConjurerFrame.shown)
 ConjurerFrame:Hide()
-ConjurerAlertWater.scripts.OnClick(ConjurerAlertWater, "LeftButton") RunTimers(0)
-check("so does clicking an icon", ConjurerFrame.shown)
+castsBefore = #CLICK_CASTS
+Click(ConjurerAlertWater, "LeftButton")
+if BARE then
+  check("without the template, clicking an icon opens Conjurer", ConjurerFrame.shown)
+else
+  check("clicking an icon conjures the water it shows, your best rank", #CLICK_CASTS == castsBefore + 1 and CLICK_CASTS[#CLICK_CASTS] == 10140
+    and not ConjurerFrame.shown and Logged("alert icon click: conjure Conjured Crystal Water"))
+end
+UI.Show() RunTimers(0)
 ns.db.alert.point = nil
 ConjurerAlertWater.scripts.OnDragStop(ConjurerAlertWater)
 check("dragging it saves where it is", type(ns.db.alert.point) == "table" and ns.db.alert.point[1] == "CENTER")
@@ -2336,6 +2377,10 @@ Click(GB.keepCheck)
 check("ticked, every gem you know is kept, best first", ns.db.gems.keep and ns.KeepsGem(ns.GEMS[1]) and C.CurrentRow() == ns.GEMS[4])
 check("and the missing ones show on the alert", ConjurerAlertGem4 and ConjurerAlertGem4:IsVisible() and ConjurerAlertGem1:IsVisible()
   and ConjurerAlertGem4.icon.texture == "itemicon:8008" and ConjurerAlertGem4.count.text == "")
+if not BARE then
+  Click(ConjurerAlertGem4)
+  check("a missing gem's alert icon conjures that gem", CLICK_CASTS[#CLICK_CASTS] == 10054)
+end
 Click(P.gemRows[2].check)
 check("a gem you untick isn't kept", ns.db.gems[10053] == false and not ns.KeepsGem(ns.GEMS[3]) and not ConjurerAlertGem3:IsVisible())
 ns.db.collapsed.gems = true
@@ -2419,7 +2464,7 @@ local L = ConjurerLog
 local all = table.concat(L.entries, "\n")
 check("the log is an account-wide saved variable", type(L) == "table" and type(L.entries) == "table" and L.session == 1)
 check("lines carry the session and the time", L.entries[1]:match("^#1 %d%d:%d%d:%d%d ") ~= nil, L.entries[1])
-check("it starts with the session", all:find("session start: Conjurer 1.1.0, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
+check("it starts with the session", all:find("session start: Conjurer 1.2.0, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
 check("it has the window's templates", all:find("window built: window template ButtonFrameTemplate", 1, true) ~= nil)
 check("it has Ready being lit", all:find("Ready is lit; hold to cast on", 1, true) ~= nil)
 check("it has the binding", all:find("bind F -> MULTIACTIONBAR7BUTTON12", 1, true) ~= nil)
@@ -2681,7 +2726,7 @@ let svText = null;
   const log = data.ConjurerLog || {};
   check('the reader parses it', Array.isArray(log.entries) && log.entries.length === 1500, log.entries && log.entries.length);
   check('with the session number', log.session === 1);
-  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.1\.0 debug report/.test(log.report[0]));
+  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.2\.0 debug report/.test(log.report[0]));
   const { execFileSync } = require('child_process');
   const out = execFileSync(process.execPath, [DIR + 'tools/conjurer-log.js', '--file', tmp, '--last', '5'], { encoding: 'utf8' });
   check('the command prints the file and the lines', out.includes('Conjurer log: ' + tmp) && out.includes('filler 1600') && out.includes('--- debug report'));
@@ -2715,8 +2760,8 @@ let svText = null;
   const field = (text, name) => { const m = new RegExp('^## ' + name + ': *(.*)$', 'm').exec(text || ''); return m ? m[1].trim() : null; };
   check('the TOC is for this client', field(toc, 'Interface') === '16001');
   check('titled Conjurer', field(toc, 'Title') === 'Conjurer');
-  check('version 1.1.0', field(toc, 'Version') === '1.1.0');
-  check('the version matches the code', /ns\.version = "1\.1\.0"/.test(sources['Core.lua']));
+  check('version 1.2.0', field(toc, 'Version') === '1.2.0');
+  check('the version matches the code', /ns\.version = "1\.2\.0"/.test(sources['Core.lua']));
   check('per-character saved variables', field(toc, 'SavedVariablesPerCharacter') === 'ConjurerDB');
   const listed = toc.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('#')).map(l => l.trim());
   check('the TOC lists the XML and every Lua file in order', listed.join(',') === ['Conjurer.xml'].concat(files).join(','), listed.join(','));
@@ -2728,7 +2773,7 @@ let svText = null;
   const changelog = (read('CHANGELOG.md') || '').replace(/\r\n/g, '\n');
   const notes = (read('RELEASE-NOTES.md') || '').replace(/\r\n/g, '\n');
   const top = changelog.split(/\n(?=## )/).find(s => s.startsWith('## ')) || '';
-  check('the changelog opens on 1.1.0', /^## 1\.1\.0 - /.test(top), top.slice(0, 30));
+  check('the changelog opens on 1.2.0', /^## 1\.2\.0 - /.test(top), top.slice(0, 30));
   check('the release notes are that section and nothing else', notes.replace(/\s+$/, '') === top.replace(/\s+$/, ''));
   check('there is a licence', /MIT License/.test(read('LICENSE') || ''));
   check('the README names the slash command', /\/conjure/.test(read('README.md') || ''));

@@ -707,6 +707,44 @@ local SUMMARY = {
 -- ------------------------------------------------------------------
 
 -- One row per rank, built once; only the ranks you've learned are shown, laid out in RefreshRanks.
+-- The tooltip of an icon that conjures its own item: the item, then what a click does.
+local function CastTip(self, entry)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	local ok = GameTooltip.SetItemByID and pcall(GameTooltip.SetItemByID, GameTooltip, entry.item)
+	if not ok then GameTooltip:SetText(entry.name, 1, 1, 1) end
+	if ns.InCombat() then
+		GameTooltip:AddLine("Click to conjure it, out of combat.", 1, 0.5, 0.5, true)
+	else
+		GameTooltip:AddLine("Click: conjure " .. ns.ShortName(entry) .. ", one cast.", 0.6, 0.85, 1, true)
+	end
+	GameTooltip:Show()
+end
+
+-- A row's icon: a button that conjures the row's item with a click, or a plain picture when the
+-- client lacks the template.
+local function RowIcon(row, entry, x)
+	local b = ns.Click and ns.Click.CastButton(nil, row)
+	if not b then
+		row.icon = row:CreateTexture(nil, "ARTWORK")
+		row.icon:SetSize(22, 22)
+		row.icon:SetPoint("LEFT", x, 0)
+		return
+	end
+	b:SetSize(22, 22)
+	b:SetPoint("LEFT", x, 0)
+	b:RegisterForClicks("LeftButtonUp")
+	row.icon = b:CreateTexture(nil, "ARTWORK")
+	row.icon:SetAllPoints()
+	local hl = b:CreateTexture(nil, "HIGHLIGHT")
+	hl:SetAllPoints()
+	hl:SetColorTexture(1, 1, 1, 0.2)
+	ns.Click.SetCast(b, entry)
+	b:SetScript("PostClick", Guard("row icon", function(self) ns.Click.LogCast(self, "icon") end))
+	b:SetScript("OnEnter", function(self) CastTip(self, entry) end)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	row.cast = b
+end
+
 local function BuildRanks(body, kind)
 	local list = ns.KINDS[kind]
 	body.empty = Text(body, "GameFontDisable")
@@ -719,9 +757,7 @@ local function BuildRanks(body, kind)
 		row:SetHeight(ROW_H)
 		row:Hide()
 		row.entry = entry
-		row.icon = row:CreateTexture(nil, "ARTWORK")
-		row.icon:SetSize(22, 22)
-		row.icon:SetPoint("LEFT", 8, 0)
+		RowIcon(row, entry, 8)
 		row.name = Text(row, "GameFontHighlight")
 		row.name:SetPoint("LEFT", 36, 0)
 		row.name:SetWidth(168)
@@ -808,9 +844,7 @@ local function BuildGems(body)
 		row:SetHeight(ROW_H)
 		row:Hide()
 		row.gem = gem
-		row.icon = row:CreateTexture(nil, "ARTWORK")
-		row.icon:SetSize(22, 22)
-		row.icon:SetPoint("LEFT", 30, 0)
+		RowIcon(row, gem, 30)
 		row.name = Text(row, "GameFontHighlight")
 		row.name:SetPoint("LEFT", 58, 0)
 		row.name:SetWidth(146)

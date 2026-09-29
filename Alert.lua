@@ -88,8 +88,12 @@ local function Tooltip(self)
 	end
 	if A.preview then GameTooltip:AddLine("Showing so you can move it. Drag it where you want it.", 0.6, 0.85, 1, true) end
 	GameTooltip:AddLine(" ")
-	GameTooltip:AddLine("Click: open Conjurer", 0.7, 0.7, 0.7)
-	GameTooltip:AddLine("Right-click: start or stop conjuring", 0.7, 0.7, 0.7)
+	if self.castable and self.castEntry then
+		GameTooltip:AddLine("Click: conjure " .. ns.ShortName(self.castEntry) .. ", one cast" .. (ns.InCombat() and " (out of combat)" or ""), 0.7, 0.7, 0.7)
+	else
+		GameTooltip:AddLine("Click: open Conjurer", 0.7, 0.7, 0.7)
+	end
+	GameTooltip:AddLine("Right-click: start or stop Ready (hold " .. ns.Conjure.KeyText() .. ")", 0.7, 0.7, 0.7)
 	GameTooltip:AddLine("Drag: move", 0.7, 0.7, 0.7)
 	GameTooltip:Show()
 end
@@ -180,7 +184,8 @@ local STOP = { "charactercreate-customize-stopbutton", "charactercreate-customiz
 local function Icon(e)
 	if icons[e.key] then return icons[e.key] end
 	local name = e.gem and ("ConjurerAlertGem" .. e.gem.rank) or ("ConjurerAlert" .. ns.KIND_LABEL[e.kind])
-	local b = CreateFrame("Button", name, holder)
+	-- A click conjures what the icon shows, when the client has the template for it.
+	local b = ns.Click and ns.Click.CastButton(name, holder) or CreateFrame("Button", name, holder)
 	b:SetSize(SIZE, SIZE)
 	b.kind, b.gem = e.kind, e.gem
 	ns.UI.DressIcon(b, SIZE)
@@ -189,9 +194,16 @@ local function Icon(e)
 	b.glow, b.anim = ns.UI.MakeGlow(b, SIZE)
 	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	Drag(b)
-	b:SetScript("OnClick", ns.Guard("alert click", function(_, which)
-		if which == "RightButton" then A.TogglePlay() else ns.UI.Show() end
-	end))
+	if b.castable then
+		-- The template's own click conjures; a right click, which it leaves alone, is Ready.
+		b:SetScript("PostClick", ns.Guard("alert click", function(self, which)
+			if which == "RightButton" then A.TogglePlay() else ns.Click.LogCast(self, "alert icon") end
+		end))
+	else
+		b:SetScript("OnClick", ns.Guard("alert click", function(_, which)
+			if which == "RightButton" then A.TogglePlay() else ns.UI.Show() end
+		end))
+	end
 	b:SetScript("OnEnter", Tooltip)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	b:Hide()
@@ -305,6 +317,7 @@ function A.Update(quiet)
 	for i, e in ipairs(show) do
 		local b = Icon(e)
 		b.icon:SetTexture(e.entry and ns.ItemIcon(e.entry) or nil)
+		if ns.Click then ns.Click.SetCast(b, e.entry) end
 		b.count:SetText(e.gem and "" or A.Total(e.kind))
 		b:ClearAllPoints()
 		b:SetPoint("LEFT", holder, "LEFT", (i - 1) * (SIZE + GAP), 0)

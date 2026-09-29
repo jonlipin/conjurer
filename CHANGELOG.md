@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0 - 2026-09-29
+
+- Click a water, food or mana gem icon in the window to conjure that exact item and rank: one cast, out of combat, no Ready or key needed.
+- The low alert's icons conjure what they show with a click too. Right-click still starts or stops Ready, and the cog opens Conjurer.
+
 ## 1.1.0 - 2026-09-28
 
 - Conjure by click: a button on the Ready bar and one on the low alert conjure with a click, one cast per click, no Ready or key needed. It always holds the next row short of its target, and on the alert, once every target is met, whatever the alert shows as low. (Holding the mouse down conjures once: the game repeats a held cast only for a key. A side mouse button can be your key.)

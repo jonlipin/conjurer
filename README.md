@@ -11,12 +11,13 @@ Type `/conjure` (or `/conjurer`), or click the minimap button.
 A Blizzard-style window with the Ready bar at the top and sections you can fold away:
 
 - **Water** and **Food**: your best rank of each, the level needed to use it, how many you have,
-  and a slider for how many you want. Tick **Show all ranks** to list every rank you've learned,
+  and a slider for how many you want. Click an icon to conjure that rank (one cast, out of combat).
+  Tick **Show all ranks** to list every rank you've learned,
   for players too low for your best; Ready conjures only the ranks listed. **Fill targets from
   group** sets every target to what your group is still owed plus what you keep for yourself, and
   says so when someone needs a lower rank that isn't shown.
 - **Mana gems**: tick **Keep your mana gems** and Ready conjures any ticked gem you're missing
-  (one of each, as the game allows), before water and food. Missing gems also show on the low
+  (one of each, as the game allows), before water and food. Click a gem's icon to conjure it. Missing gems also show on the low
   alert.
 - **Shares by class**: how much water and food each class gets, how much you keep, and the most a
   stranger gets. Options to fill the trade window by itself (for strangers too, if you like), to
@@ -164,8 +165,9 @@ high enough to use. It only alerts for what you can conjure.
   runs) and a **cog** that opens Conjurer. Started from the alert, it stays up until conjuring
   stops, so stop stays in reach.
 - **Show it**: out of combat (the default), in combat, or always.
-- Click an icon to open Conjurer, right-click it to start or stop conjuring, and drag it wherever
-  you like (**Show it to move it** shows it so you can). A sound when it appears is optional.
+- Click an icon to conjure what it shows (one cast, out of combat), right-click it to start or stop
+  Ready, and drag it wherever you like (**Show it to move it** shows it so you can). A sound when it
+  appears is optional.
 
 ## The announce button
 
