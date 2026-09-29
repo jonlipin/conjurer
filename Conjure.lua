@@ -744,7 +744,7 @@ function C.Disarm(reason)
 	ns.SnapshotReport("Ready off")
 	ns.Refresh()
 	-- What Ready left in loose stacks can be tidied now.
-	if ns.Bags then ns.Bags.TidySoon() end
+	if ns.Bags then ns.Bags.RequestTidy() end
 end
 
 function C.Toggle()

@@ -1414,6 +1414,7 @@ ns.Profile().water[7] = 0
 
 -- ---- Tidying loose stacks ---------------------------------------------------
 if C.armed then C.Disarm() end
+local B = ns.Bags
 local function StacksOf(item)
   local list = {}
   for bag = 0, 4 do for slot = 1, 16 do local st = BAGS[bag][slot] if st and st.itemID == item then list[#list + 1] = st.stackCount end end end
@@ -1432,14 +1433,32 @@ end
 local function Settle(times)
   for i = 1, times or 6 do fire("BAG_UPDATE_DELAYED") RunTimers(2) end
 end
-LooseStacks()
+-- A conjure landing, the way the client reports it.
+local function Conjured()
+  CAST_N = CAST_N + 1
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-" .. CAST_N, 10140) RunTimers(0)
+end
 ns.db.tidy = true
-logMark = #ConjurerLog.entries
 Settle()
-check("loose conjured stacks are merged into whole ones", StacksOf(8079) == "20,20,6" and StacksOf(22895) == "7", StacksOf(8079) .. " / " .. StacksOf(22895))
+B.tidyWanted = false
+LooseStacks()
+Settle()
+check("loose stacks alone aren't touched: nothing asked for a tidy", StacksOf(8079) == "20,14,7,5")
+RemoveItems(8079, 1) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+Settle()
+check("eating or drinking doesn't set it off", StacksOf(8079) == "20,13,7,5", StacksOf(8079))
+LooseStacks()
+logMark = #ConjurerLog.entries
+Conjured()
+Settle()
+check("after a conjure, loose conjured stacks are merged into whole ones", StacksOf(8079) == "20,20,6" and StacksOf(22895) == "7", StacksOf(8079) .. " / " .. StacksOf(22895))
 check("smallest onto biggest, one move at a time, each logged", LoggedSince("tidy: 5 Conjured Crystal Water onto 14")
   and LoggedSince("tidy: 3 Conjured Cinnamon Roll onto 4"))
 check("nothing is left on the cursor", CURSOR == nil)
+RemoveItems(8079, 1) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+RemoveItems(8079, 1) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+Settle()
+check("once tidy, a drink or two afterwards leaves the stacks be", StacksOf(8079) == "20,18,6", StacksOf(8079))
 -- Not while something else is going on.
 LooseStacks()
 ns.Profile().water[7] = 100
@@ -1461,24 +1480,33 @@ TradeCancel() RunTimers(0)
 Settle()
 check("but once it closes", StacksOf(8079) == "20,20,6")
 LooseStacks()
+Conjured()
 CASTING = true
 Settle()
 CASTING = false
 check("not while casting", StacksOf(8079) == "20,14,7,5")
+Settle()
+check("and once the casting stops, the tidy asked for goes ahead", StacksOf(8079) == "20,20,6")
 LooseStacks()
+Conjured()
 CURSOR = { kind = "spell", id = 1 }
 Settle()
 local stillHeld = CURSOR and CURSOR.kind == "spell" and CURSOR.id == 1
 CURSOR = nil
 check("not while something is on the cursor, which stays there", StacksOf(8079) == "20,14,7,5" and stillHeld)
+B.tidyWanted = false
 LooseStacks()
+Conjured()
 EnterCombatLockdown()
 logMark = #ConjurerLog.entries
 Settle()
 COMBAT = false
 check("not in combat, not even an attempt", StacksOf(8079) == "20,14,7,5" and not LoggedSince("tidy:"))
+fire("PLAYER_REGEN_ENABLED") RunTimers(2)
+Settle()
+check("after the fight, the tidy asked for goes ahead", StacksOf(8079) == "20,20,6")
 LooseStacks()
-fire("BAG_UPDATE_DELAYED")
+Conjured()
 ns.db.tidy = false
 Settle()
 check("and never with Tidy switched off, even a move already on its way", StacksOf(8079) == "20,14,7,5")

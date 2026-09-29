@@ -88,11 +88,16 @@ end
 -- one move at a time with a pause for the server between (the next move waits for the bags to
 -- settle), and only when nothing else is going on: out of combat, Ready off, no trade open,
 -- nothing on the cursor and nothing being cast. Whole stacks are then ready to hand over.
+--
+-- Only what makes loose stacks asks for a tidy: a conjure landing, Ready going off, a trade
+-- closing. Eating and drinking don't: in game every bite set it off again (user, 2026-09-29).
+-- Asked for, it carries on as the bags settle until the stacks are whole, then stops.
 -- ------------------------------------------------------------------
 
 local TIDY_DELAY = 1.5
 local tidyQueued = false
 local tidyPausedUntil = 0
+B.tidyWanted = false
 
 local function Casting()
 	if not UnitCastingInfo then return false end
@@ -126,9 +131,12 @@ end
 
 function B.TidyStep()
 	tidyQueued = false
-	if not (ns.db and ns.db.tidy) or GetTime() < tidyPausedUntil or B.Busy() then return end
+	if not (B.tidyWanted and ns.db and ns.db.tidy) or GetTime() < tidyPausedUntil or B.Busy() then return end
 	local entry, from, to = B.NextMerge()
-	if not entry then return end
+	if not entry then
+		B.tidyWanted = false
+		return
+	end
 	ns.Stage("tidying " .. entry.name)
 	pcall(C_Container.PickupContainerItem, from.bag, from.slot)
 	if GetCursorInfo() then pcall(C_Container.PickupContainerItem, to.bag, to.slot) end
@@ -143,11 +151,31 @@ function B.TidyStep()
 end
 
 function B.TidySoon()
-	if tidyQueued or not (ns.db and ns.db.tidy) then return end
+	if tidyQueued or not (B.tidyWanted and ns.db and ns.db.tidy) then return end
 	tidyQueued = true
 	ns.After(TIDY_DELAY, B.TidyStep)
 end
 
+-- Asks for a tidy, which runs as soon as nothing else is going on.
+function B.RequestTidy()
+	B.tidyWanted = true
+	B.TidySoon()
+end
+
+-- A tidy asked for carries on as the bags settle, or once a fight or a trade is over.
 ns.On("BAG_UPDATE_DELAYED", function() B.TidySoon() end)
 ns.On("PLAYER_REGEN_ENABLED", function() B.TidySoon() end)
-ns.On("TRADE_CLOSED", function() B.TidySoon() end)
+ns.On("TRADE_CLOSED", function() B.RequestTidy() end)
+
+-- A conjure of food or water landing asks for one.
+local conjures = CreateFrame("Frame")
+conjures:SetScript("OnEvent", ns.Guard("tidy cast watch", function(_, _, unit, _, spell)
+	if ns.Clean(unit) ~= "player" then return end
+	local entry = ns.BY_SPELL[ns.Clean(spell)]
+	if entry and entry.kind ~= "gem" then B.RequestTidy() end
+end))
+if conjures.RegisterUnitEvent then
+	pcall(conjures.RegisterUnitEvent, conjures, "UNIT_SPELLCAST_SUCCEEDED", "player")
+else
+	pcall(conjures.RegisterEvent, conjures, "UNIT_SPELLCAST_SUCCEEDED")
+end

@@ -143,9 +143,10 @@ Hovering a friendly player shows what Conjurer would hand them, and whether they
 
 ## Tidy bags
 
-Loose stacks of conjured food and water are merged into whole ones, one move at a time, only when
-nothing else is going on: out of combat, Ready off, no trade open, nothing on the cursor, nothing
-being cast. Untick **Tidy conjured stacks in your bags** in Options to leave your bags alone.
+After you conjure, when Ready goes off and when a trade closes, loose stacks of conjured food and
+water are merged into whole ones, one move at a time, once nothing else is going on: out of
+combat, Ready off, no trade open, nothing on the cursor, nothing being cast. Eating and drinking
+don't set it off. Untick **Tidy conjured stacks in your bags** in Options to leave your bags alone.
 
 ## The eat and drink macro
 
