@@ -27,7 +27,7 @@ local COG_ART = {
 	{ "gm-icon-settings", "gm-icon-settings-hover", "gm-icon-settings-pressed" },
 }
 -- The professions book's bar at its own height, as far under the icons as it is over the panel's edge.
-local PROGRESS_H, PROGRESS_GAP = 23, 4
+local PROGRESS_H, PROGRESS_GAP = 23, 2
 -- Its frame sits 2 in from the art's ends, so it reaches 2 past the row to line up with the icons.
 local PROGRESS_OUT = 2
 -- The panel round the bar: the bag window's, as ShardGrid's soul shard and summons windows use. The

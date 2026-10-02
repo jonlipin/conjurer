@@ -462,6 +462,8 @@ local SKILL_ART = {
 local SKILL_H = 23
 local SKILL_CAP = 8 -- the round end of the frame and background, kept whole on a long bar
 local SKILL_FLOW = 2 -- the book's seconds for the fill to flow once
+local IDLE_MIN, IDLE_MAX = 12, 30 -- and between flows of its own, a random wait in this many seconds
+local BUSY_MIN, BUSY_MAX = 3, 6 -- or this many while Ready is lit and you're conjuring
 
 -- An atlas laid in three pieces, so a long bar stretches only its middle and keeps its round ends.
 -- One stretched piece when the client doesn't say where the atlas sits in its file.
@@ -604,15 +606,29 @@ local function NewProgress(parent, name, width, height)
 		end
 		self:Paint()
 	end
-	-- The fill flows once, from its first frame.
+	-- The fill flows once, from its first frame. The book stops there; this bar flows again now and
+	-- then while it's in view, more often while you're conjuring, after a random wait so the two bars
+	-- don't flow together. Each flow sets the next wait, and a newer wait cancels an older one.
 	function bar:Flow()
 		if not self.anim then return end
 		self.anim:Stop()
 		self.anim:Play()
+		self.idle = (self.idle or 0) + 1
+		local idle = self.idle
+		local busy = ns.Conjure and ns.Conjure.armed
+		ns.After(busy and math.random(BUSY_MIN, BUSY_MAX) or math.random(IDLE_MIN, IDLE_MAX), function()
+			if self.idle == idle and self:IsVisible() then self:Flow() end
+		end)
 	end
 	-- With what Ready is working to now; the window adds the profile in front.
 	function bar:Refresh(prefix)
 		local done, total = ns.Conjure.Progress()
+		-- Ready lighting up flows the bar at once, and sets the shorter waits going.
+		local busy = ns.Conjure.armed and true or false
+		if busy ~= self.busy then
+			self.busy = busy
+			if busy then self.shownValue = nil end
+		end
 		self:SetProgress(done, total, prefix)
 	end
 	-- A bar stretched between two points learns its width late.

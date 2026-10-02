@@ -120,7 +120,7 @@ M.CreateAnimation = function(s, kind)
   if BAD_FLIPBOOK and kind == "FlipBook" then error("no FlipBook animations") end
   local a = obj("anim") a.parent = s a.animKind = kind s.anims[#s.anims + 1] = a return a
 end
-M.Play = function(s) s.playing = true end
+M.Play = function(s) s.playing = true s.plays = (s.plays or 0) + 1 end
 M.Stop = function(s) s.playing = false end
 M.IsPlaying = function(s) return s.playing end
 M.SetLooping = function(s, v) s.looping = v end
@@ -2235,6 +2235,49 @@ else
   AP.anim.playing = false
   AP:Hide() AP:Show()
   check("and when it comes into view", AP.anim.playing)
+  AP.anim.playing = false
+  RunTimers(31)
+  check("and again now and then, after a random wait of up to half a minute", AP.anim.playing)
+  AP.anim.playing = false
+  RunTimers(31)
+  check("and again after that", AP.anim.playing)
+  AP.anim.playing = false
+  AP:Hide()
+  RunTimers(31)
+  check("but not while it's out of sight", not AP.anim.playing)
+  RunTimers(31)
+  check("nor waits on in the background", not AP.anim.playing)
+  AP:Show()
+  check("until it's back", AP.anim.playing)
+  -- The waits made certain: the shortest, then the longest.
+  local random = math.random
+  math.random = function(a, b) return a end
+  AP:Flow()
+  AP.anim.playing = false
+  RunTimers(11.9)
+  check("never sooner than 12 seconds", not AP.anim.playing)
+  RunTimers(0.2)
+  check("then it flows", AP.anim.playing)
+  math.random = function(a, b) return b end
+  AP:Flow() AP:Flow() AP:Flow()
+  local plays = AP.anim.plays
+  RunTimers(30)
+  check("a newer wait cancels the older ones: one flow, not three", AP.anim.plays == plays + 1, AP.anim.plays - plays)
+  Click(P.readyButton)
+  check("Ready lighting up flows it at once", C.armed and AP.anim.plays == plays + 2, AP.anim.plays - plays)
+  plays = AP.anim.plays
+  RunTimers(6)
+  check("and while you're conjuring it flows every few seconds", AP.anim.plays == plays + 1 and P.progress.anim.plays > 0, AP.anim.plays - plays)
+  RunTimers(6)
+  check("again and again", AP.anim.plays == plays + 2, AP.anim.plays - plays)
+  Click(P.readyButton)
+  RunTimers(6)
+  plays = AP.anim.plays
+  RunTimers(29)
+  check("Ready off, it's back to waiting up to half a minute", not C.armed and AP.anim.plays == plays, AP.anim.plays - plays)
+  RunTimers(1)
+  check("and flows at the end of it", AP.anim.plays == plays + 1, AP.anim.plays - plays)
+  math.random = random
   check("cut by its mask to the progress, as the book cuts it", math.abs(AP.mask.w - (40 * 0.75 - 7)) < 0.001
     and AP.fill.mask == AP.mask and math.abs(P.progress.mask.w - (100 * 0.75 - 7)) < 0.001, AP.mask.w)
   check("with the flare riding its edge while it fills", AP.flare.shown and AP.flare.mask == AP.mask and AP.flare.atlas == "Skillbar_Flare_Alchemy_c60")
@@ -2278,15 +2321,15 @@ check("the bar sits in the bag window's panel, as ShardGrid's windows do", Conju
   and (ConjurerAlertBorder.template == "DefaultPanelFlatTemplate" or (BARE and ns.report["alert frame"] ~= "DefaultPanelFlatTemplate")), ns.report["alert frame"])
 check("titled Conjurer", BARE or ConjurerAlertBorder.TitleContainer.TitleText.text == "Conjurer")
 check("round its icons and its progress bar, under the title bar", ConjurerAlertBorder.points[1][2] == ConjurerAlert
-  and math.abs(ConjurerAlertBorder.points[1][4] - (-10 - 6 * 74 / 67)) < 1e-9 and ConjurerAlertBorder.points[1][5] == 27
-  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder.points[2][4] - (8 + 4 * 74 / 67)) < 1e-9
+  and math.abs(ConjurerAlertBorder.points[1][4] - (-10 - 6 * 74 / 65)) < 1e-9 and ConjurerAlertBorder.points[1][5] == 27
+  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder.points[2][4] - (8 + 4 * 74 / 65)) < 1e-9
   and ConjurerAlertBorder.points[2][5] == -9)
-check("too short for its metal corners, it's drawn at their size and shrunk", math.abs(ConjurerAlertBorder:GetScale() - 67 / 74) < 1e-9,
+check("too short for its metal corners, it's drawn at their size and shrunk", math.abs(ConjurerAlertBorder:GetScale() - 65 / 74) < 1e-9,
   ConjurerAlertBorder:GetScale())
 check("under the icons, which take the clicks, its background taking a drag", ConjurerAlertBorder.level + 1 < ConjurerAlert:GetFrameLevel()
   and (BARE or ConjurerAlertBorder.NineSlice.level == ConjurerAlertBorder.level + 1)
   and ConjurerAlertBorder.scripts.OnDragStart ~= nil)
-local fit = 67 / 74
+local fit = 65 / 74
 check("its cog is ShardGrid's, in the title bar's right end", ConjurerAlertSettings.points[1][1] == "TOPRIGHT"
   and ConjurerAlertSettings.points[1][2] == ConjurerAlertBorder and math.abs(ConjurerAlertSettings.points[1][4] + 5 * fit) < 1e-9
   and math.abs(ConjurerAlertSettings.points[1][5] + 3 * fit) < 1e-9 and ConjurerAlertSettings.w == 20
@@ -2344,7 +2387,7 @@ check("without the progress bar the frame closes up under the icons", ConjurerAl
   and math.abs(ConjurerAlertBorder.points[2][4] - (8 + 6 * 74 / 40)) < 1e-9
   and math.abs(ConjurerAlertBorder:GetScale() - 40 / 74) < 1e-9)
 Click(AL.progressCheck)
-check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder:GetScale() - 67 / 74) < 1e-9)
+check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder:GetScale() - 65 / 74) < 1e-9)
 check("the debug report says how the bar is dressed", table.concat(ns.DebugReport(), "\n"):find(", frame on (", 1, true) ~= nil)
 AddItems(8079, 20)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
