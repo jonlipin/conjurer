@@ -146,7 +146,8 @@ for _, a in ipairs({ "Options_ListExpand_Left", "_Options_ListExpand_Middle", "O
   "charactercreate-customize-playbutton", "charactercreate-customize-stopbutton",
   "gm-icon-settings", "gm-icon-settings-pressed", "gm-icon-settings-hover", "communities-icon-chat",
   "Profession-ProgressBar-frame", "Profession-ProgressBar-BG", "Skillbar_Fill_Flipbook_Alchemy_c60", "Skillbar_Flare_Alchemy_c60",
-  "common-dropdown-a-button-settings", "common-dropdown-a-button-settings-hover", "common-dropdown-a-button-settings-pressed" }) do
+  "common-dropdown-a-button-settings", "common-dropdown-a-button-settings-hover", "common-dropdown-a-button-settings-pressed",
+  "common-dropdown-a-button-sharetochat", "common-dropdown-a-button-sharetochat-hover", "common-dropdown-a-button-sharetochat-pressed" }) do
   KNOWN_ATLASES[a] = true
 end
 -- Where some atlases sit in their files, as the client reports them.
@@ -2571,27 +2572,42 @@ local AB = P.sections.announce.body
 ns.db.alert.always = true
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 local barWidth = ConjurerAlert.w
-local function AnnounceUp() return ConjurerAnnounce ~= nil and ConjurerAnnounce:IsVisible() end
+local function AnnounceUp() return (ConjurerAnnounce ~= nil and ConjurerAnnounce:IsVisible())
+  or (ConjurerAnnounceHeader ~= nil and ConjurerAnnounceHeader:IsVisible()) end
 check("the announce button is off until you turn it on", ns.db.announce.shown == false and not AnnounceUp())
 Click(AB.shownCheck)
 check("turned on, it waits until you're in a group", ns.db.announce.shown and not AnnounceUp())
 GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
-check("in a party it shows, on the quick access bar", AnnounceUp() and ConjurerAnnounce.parent == ConjurerAlert)
-check("after the click-to-conjure button, and the bar grows to fit it", BARE or (ConjurerAnnounce.points[1][2] == ConjurerAlert
-  and ConjurerAnnounce.points[1][4] == ConjurerAlertConjure.points[1][4] + 42 and ConjurerAlert.w == barWidth + 42), ConjurerAlert.w .. " " .. barWidth)
+check("in a party it shows, in the quick access bar's title bar", AnnounceUp() and ConjurerAnnounceHeader:IsVisible()
+  and not ConjurerAnnounce:IsVisible() and ConjurerAnnounceHeader.parent == ConjurerAlert)
+local hfit = ConjurerAlertBorder.fit
+check("at its left end, mirroring the cog, the row as it was", ConjurerAnnounceHeader.points[1][1] == "TOPLEFT"
+  and ConjurerAnnounceHeader.points[1][2] == ConjurerAlertBorder and math.abs(ConjurerAnnounceHeader.points[1][4] - 7 * hfit) < 1e-9
+  and math.abs(ConjurerAnnounceHeader.points[1][5] + 3 * hfit) < 1e-9 and ConjurerAnnounceHeader.w == ConjurerAlertSettings.w
+  and ConjurerAlert.w == barWidth, ConjurerAlert.w .. " " .. barWidth)
+check("the chat symbol in a framed button of the cog's family", ConjurerAnnounceHeader.art.atlas == "common-dropdown-a-button-sharetochat"
+  or (BARE and ConjurerAnnounceHeader.bubble ~= nil))
+Click(P.sections.alert.body.frameCheck)
+check("without the panel it's an icon in the row after the click-to-conjure button, and the row grows to fit it",
+  not ConjurerAnnounceHeader:IsVisible() and ConjurerAnnounce:IsVisible() and (BARE or (ConjurerAnnounce.points[1][2] == ConjurerAlert
+  and ConjurerAnnounce.points[1][4] == ConjurerAlertConjure.points[1][4] + 42)), ConjurerAlert.w .. " " .. barWidth)
 check("with a chat bubble on your best water", ConjurerAnnounce.icon.texture == "itemicon:8079"
   and (ConjurerAnnounce.badge.atlas == "communities-icon-chat" or (BARE and not ConjurerAnnounce.badge.shown)))
+Click(P.sections.alert.body.frameCheck)
+check("the panel back, it's back in the title bar", ConjurerAnnounceHeader:IsVisible() and not ConjurerAnnounce:IsVisible()
+  and ConjurerAlert.w == barWidth)
 ClearBags()
 AddItems(8079, 45)
 AddItems(8078, 20)
 AddItems(22895, 20)
 SENT = {}
-Click(ConjurerAnnounce)
+Click(ConjurerAnnounceHeader)
 check("a click tells the party", #SENT == 1 and SENT[1].channel == "PARTY")
 check("what you have left, best rank first, with the level each needs", SENT[1].text
   == "Mage food and water here! Trade me for yours. I have 45 Crystal Water (55+), 20 Sparkling Water (45+) and 20 Cinnamon Roll (55+).", SENT[1].text)
-check("the button shows its cooldown", BARE or (ConjurerAnnounce.cooldown and ConjurerAnnounce.cooldown.cd and ConjurerAnnounce.cooldown.cd[2] == 10))
+check("the button shows its cooldown", BARE or (ConjurerAnnounce.cooldown and ConjurerAnnounce.cooldown.cd and ConjurerAnnounce.cooldown.cd[2] == 10
+  and ConjurerAnnounceHeader.cooldown.cd[2] == 10))
 Click(ConjurerAnnounce)
 check("not twice in a row", #SENT == 1 and ChatWith("Announced a moment ago") == 1)
 fire("CHAT_MSG_PARTY", SENT[1].text, "Vatik") RunTimers(0)
@@ -2635,10 +2651,10 @@ Click(ConjurerAnnounce)
 check("with nothing to offer it says so and sends nothing", #SENT == before and ChatWith("You have no conjured food or water to offer yet.") == 1)
 AddItems(8079, 45)
 ConjurerFrame:Hide()
-ConjurerAnnounce.scripts.OnClick(ConjurerAnnounce, "RightButton") RunTimers(0)
+ConjurerAnnounceHeader.scripts.OnClick(ConjurerAnnounceHeader, "RightButton") RunTimers(0)
 check("right-click opens Conjurer", ConjurerFrame.shown)
 ns.db.alert.point = nil
-ConjurerAnnounce.scripts.OnDragStop(ConjurerAnnounce)
+ConjurerAnnounceHeader.scripts.OnDragStop(ConjurerAnnounceHeader)
 check("dragging it moves the whole bar", type(ns.db.alert.point) == "table")
 REFUSE_CHAT = true
 RunTimers(11)

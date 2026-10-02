@@ -1,6 +1,7 @@
 -- Conjurer
 -- Announce: a button on the quick access bar that tells your party, raid or battleground to trade
--- you for food and water, with how much of each you have left.
+-- you for food and water, with how much of each you have left. It sits in the bar's title bar, the
+-- chat symbol in a framed button like the cog; without the panel, it's an icon in the row.
 --
 -- The message is yours to word; {stock} becomes what you have ("120 Crystal Water (55+) and 60
 -- Cinnamon Roll (55+)"), {water} and {food} each kind on its own, with the items as links people
@@ -18,7 +19,10 @@ ns.Announce = N
 local SIZE = 36
 local COOLDOWN = 10
 local MAX_LENGTH = 255
-local button
+local button, header
+-- The header's button, from the cog's family: the chat symbol in a framed square.
+local HEADER_ART = { "common-dropdown-a-button-sharetochat", "common-dropdown-a-button-sharetochat-hover",
+	"common-dropdown-a-button-sharetochat-pressed" }
 N.last = -COOLDOWN
 
 N.DEFAULT_MESSAGE = "Mage food and water here! Trade me for yours. I have {stock}."
@@ -129,6 +133,7 @@ function N.Send()
 	ns.Log("announce to " .. channel .. ": " .. (ok and "sent" or ("failed: " .. tostring(err))) .. " | " .. text)
 	if not ok then ns.Print("The game didn't let Conjurer send that. It's in the log.") end
 	if button and button.cooldown then pcall(button.cooldown.SetCooldown, button.cooldown, now, COOLDOWN) end
+	if header and header.cooldown then pcall(header.cooldown.SetCooldown, header.cooldown, now, COOLDOWN) end
 	return ok
 end
 
@@ -193,6 +198,60 @@ function N.Make(parent, size)
 	return button
 end
 
+-- The small one for the bar's title bar, at its left end as the cog is at its right: the chat
+-- symbol in a framed button of the cog's family. The same click, tooltip and drag as the icon.
+function N.MakeHeader(parent, size)
+	if header then return header end
+	header = CreateFrame("Button", "ConjurerAnnounceHeader", parent)
+	header:SetSize(size, size)
+	header.art = header:CreateTexture(nil, "ARTWORK")
+	header.art:SetAllPoints()
+	local hl = header:CreateTexture(nil, "HIGHLIGHT")
+	hl:SetAllPoints()
+	if ns.HasAtlas(HEADER_ART[1]) then
+		header.up = HEADER_ART[1]
+		header.down = ns.HasAtlas(HEADER_ART[3]) and HEADER_ART[3] or HEADER_ART[1]
+		header.art:SetAtlas(header.up)
+		if ns.HasAtlas(HEADER_ART[2]) then
+			hl:SetAtlas(HEADER_ART[2])
+		else
+			hl:SetAtlas(header.up)
+			hl:SetBlendMode("ADD")
+			hl:SetAlpha(0.35)
+		end
+		header:SetScript("OnMouseDown", function(self) self.art:SetAtlas(self.down) end)
+		header:SetScript("OnMouseUp", function(self) self.art:SetAtlas(self.up) end)
+		report["announce header"] = HEADER_ART[1]
+	else
+		-- A chat bubble on a dark square stands in.
+		header.art:SetColorTexture(0.1, 0.1, 0.1, 0.9)
+		header.bubble = header:CreateTexture(nil, "OVERLAY")
+		header.bubble:SetPoint("TOPLEFT", 2, -2)
+		header.bubble:SetPoint("BOTTOMRIGHT", -2, 2)
+		if ns.HasAtlas("communities-icon-chat") then
+			header.bubble:SetAtlas("communities-icon-chat")
+		else
+			header.bubble:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Up")
+		end
+		hl:SetColorTexture(1, 1, 1, 0.15)
+		report["announce header"] = "chat bubble on a square"
+	end
+	local ok, cooldown = pcall(CreateFrame, "Cooldown", nil, header, "CooldownFrameTemplate")
+	if ok and cooldown then
+		cooldown:SetAllPoints()
+		if cooldown.SetDrawEdge then cooldown:SetDrawEdge(false) end
+		header.cooldown = cooldown
+	end
+	header:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	header:SetScript("OnClick", ns.Guard("announce button", function(_, which)
+		if which == "RightButton" then ns.UI.Show() else N.Send() end
+	end))
+	header:SetScript("OnEnter", Tooltip)
+	header:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	header:Hide()
+	return header
+end
+
 -- Its face: your best water (or food).
 function N.Paint()
 	if not button then return end
@@ -205,7 +264,7 @@ function N.Update()
 	if not ns.db then return end
 	local db = ns.db.announce
 	if N.Wanted() then
-		report["announce button"] = "on the quick access bar"
+		report["announce button"] = (ns.db.alert.frame and "in the quick access bar's title bar" or "on the quick access bar")
 	else
 		report["announce button"] = db.shown and "on, hidden until you're in a group" or "off"
 	end

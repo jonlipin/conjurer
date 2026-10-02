@@ -42,7 +42,7 @@ local INSET = { left = 10, right = 8, top = 27, bottom = 9 }
 local SIDE = 6 -- more room at the sides, on screen, out of what the narrow gaps save
 local MIN_W, MIN_H, MIN_FIT = 156, 110, 0.5
 local BASE_LEVEL = 10 -- the panel's level; the bar and its buttons sit well above it
-local holder, playButton, cogButton, conjureButton, announceButton, progress, border, titleFont
+local holder, playButton, cogButton, conjureButton, announceButton, announceHeader, progress, border, titleFont
 local cogX = 0 -- where the cog goes in the row without the panel
 local icons = {}
 local wasLow = { water = false, food = false }
@@ -350,6 +350,8 @@ local function Build()
 	-- The announce button, when it's turned on, after the click-to-conjure one.
 	announceButton = ns.Announce and ns.Announce.Make(holder, SIZE)
 	if announceButton then Drag(announceButton) end
+	announceHeader = ns.Announce and ns.Announce.MakeHeader and ns.Announce.MakeHeader(holder, COG)
+	if announceHeader then Drag(announceHeader) end
 
 	-- How far the conjuring has got, right under the icons and buttons.
 	progress = ns.UI.NewProgress(holder, "ConjurerAlertProgress", SIZE, PROGRESS_H)
@@ -372,7 +374,8 @@ local function PaintPlay()
 end
 
 -- The cog sits where ShardGrid's does, in the title bar's right end, sized to the shrunk panel as
--- its is; without the panel it ends the row.
+-- its is; without the panel it ends the row. The announce button mirrors it at the left end, 2
+-- further in, as the panel's left edge is 2 wider.
 local function PlaceCog(on)
 	if not cogButton then return end
 	cogButton:ClearAllPoints()
@@ -381,6 +384,11 @@ local function PlaceCog(on)
 		local size = math.min(COG, 26 * fit)
 		cogButton:SetSize(size, size)
 		cogButton:SetPoint("TOPRIGHT", border, "TOPRIGHT", -5 * fit, -3 * fit)
+		if announceHeader then
+			announceHeader:SetSize(size, size)
+			announceHeader:ClearAllPoints()
+			announceHeader:SetPoint("TOPLEFT", border, "TOPLEFT", 7 * fit, -3 * fit)
+		end
 	else
 		cogButton:SetSize(COG, COG)
 		cogButton:SetPoint("LEFT", holder, "LEFT", cogX + (CONTROLS - COG) / 2, 0)
@@ -498,8 +506,11 @@ function A.Update(quiet)
 		conjureButton:Show()
 		x = x + SIZE + GAP
 	end
+	-- The announce button: in the panel's title bar, or without the panel an icon in the row.
 	if announceButton then
-		if ns.Announce.Wanted() then
+		local wanted = ns.Announce.Wanted()
+		if announceHeader then announceHeader:SetShown(wanted and db.frame and true or false) end
+		if wanted and not db.frame then
 			ns.Announce.Paint()
 			announceButton:ClearAllPoints()
 			announceButton:SetPoint("LEFT", holder, "LEFT", x, 0)

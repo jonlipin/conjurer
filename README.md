@@ -187,7 +187,8 @@ for every row's count.
 
 ## The announce button
 
-An optional button on the quick access bar (turn it on in the **Announce button** section).
+An optional button in the quick access bar's title bar, the chat symbol at its left end (turn it on in
+the **Announce button** section; without the panel it's an icon in the row).
 One click tells your group to trade you for food and water, with how much you have left:
 
 > Mage food and water here! Trade me for yours. I have 120 Crystal Water (55+), 40 Sparkling Water
