@@ -20,6 +20,9 @@ local GAP = 2 -- the action bars' spacing
 local CONTROLS = 24 -- the cog's room at the end of the row, when there's no panel to hold it
 -- The options button ShardGrid has in its title bar: the dropdown settings cog, gold in a square.
 local COG = 20
+-- The cog family's art fills its 27 square across from 4 to 23 but down only from 1 to 21, a
+-- shadow below, so it's placed by what shows rather than by its square.
+local ART_SIZE, ART_TOP, ART_BOTTOM = 27, 1, 21
 local COG_ART = {
 	{ "common-dropdown-a-button-settings", "common-dropdown-a-button-settings-hover", "common-dropdown-a-button-settings-pressed" },
 	{ "common-dropdown-a-button-settings-shadowless", "common-dropdown-a-button-settings-hover-shadowless",
@@ -374,7 +377,8 @@ end
 -- The cog sits where ShardGrid's does, in the title bar's right end, sized to the shrunk panel as
 -- its is, and the announce button mirrors it at the left end, 2 further in, as the panel's left edge
 -- is 2 wider. Without the panel the cog ends the row, with the announce button under it when it
--- shows, the two a little smaller to fit one over the other.
+-- shows: the same room above, between and below them against the icons, or the cog alone in the
+-- middle of the row.
 local function PlaceCog(on)
 	if not cogButton then return end
 	local announce = announceButton and announceButton:IsShown()
@@ -389,16 +393,19 @@ local function PlaceCog(on)
 			announceButton:SetSize(size, size)
 			announceButton:SetPoint("TOPLEFT", border, "TOPLEFT", 7 * fit, -3 * fit)
 		end
-	elseif announce then
-		local size = (SIZE - 4) / 2
-		local x = cogX + (CONTROLS - size) / 2
-		cogButton:SetSize(size, size)
-		cogButton:SetPoint("TOPLEFT", holder, "TOPLEFT", x, 0)
-		announceButton:SetSize(size, size)
-		announceButton:SetPoint("BOTTOMLEFT", holder, "BOTTOMLEFT", x, 0)
 	else
+		local shown = COG * (ART_BOTTOM - ART_TOP) / ART_SIZE -- how tall the art is
+		local top = COG * ART_TOP / ART_SIZE -- how far down its square it starts
+		local x = cogX + (CONTROLS - COG) / 2
 		cogButton:SetSize(COG, COG)
-		cogButton:SetPoint("LEFT", holder, "LEFT", cogX + (CONTROLS - COG) / 2, 0)
+		if announce then
+			local gap = (SIZE - 2 * shown) / 3
+			cogButton:SetPoint("TOPLEFT", holder, "TOPLEFT", x, top - gap)
+			announceButton:SetSize(COG, COG)
+			announceButton:SetPoint("TOPLEFT", holder, "TOPLEFT", x, top - 2 * gap - shown)
+		else
+			cogButton:SetPoint("TOPLEFT", holder, "TOPLEFT", x, top - (SIZE - shown) / 2)
+		end
 	end
 end
 

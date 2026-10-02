@@ -2340,7 +2340,11 @@ check("so the row ends at the Ready button", rowW == ConjurerAlertPlay.points[1]
 Click(AL.frameCheck)
 check("the border and background can go, keeping the icons, buttons and bar", not ns.db.alert.frame and not ConjurerAlertBorder.shown
   and ConjurerAlertWater:IsVisible() and ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible() and ConjurerAlertProgress:IsVisible())
-check("the cog then ends the row", ConjurerAlertSettings.points[1][2] == ConjurerAlert and ConjurerAlertSettings.points[1][4] == rowW + 2 + 2
+-- The cog family's art shows from 1 to 21 of its 27 square, down.
+local artShown, artTop = 20 * 20 / 27, 20 / 27
+check("the cog then ends the row, what shows of it in the middle of the icons", ConjurerAlertSettings.points[1][2] == ConjurerAlert
+  and ConjurerAlertSettings.points[1][4] == rowW + 2 + 2 and ConjurerAlertSettings.w == 20
+  and math.abs((-ConjurerAlertSettings.points[1][5] + artTop) - (40 - artShown) / 2) < 1e-9
   and ConjurerAlert.w == rowW + 2 + 24, ConjurerAlert.w)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("and stay gone as the bags change", not ConjurerAlertBorder.shown and ConjurerAlert.shown)
@@ -2587,11 +2591,18 @@ check("at its left end, mirroring the cog, the row as it was", ConjurerAnnounce.
 check("the chat symbol in a framed button of the cog's family", ConjurerAnnounce.art.atlas == "common-dropdown-a-button-sharetochat"
   or (BARE and ConjurerAnnounce.bubble ~= nil))
 Click(P.sections.alert.body.frameCheck)
-local cx = ConjurerAlertPlay.points[1][4] + 40 + 2 + (24 - 18) / 2
-check("without the panel it's under the cog at the end of the row, the two a little smaller, one over the other",
-  ConjurerAnnounce:IsVisible() and ConjurerAnnounce.points[1][1] == "BOTTOMLEFT" and ConjurerAnnounce.points[1][2] == ConjurerAlert
-  and ConjurerAnnounce.points[1][4] == cx and ConjurerAlertSettings.points[1][1] == "TOPLEFT" and ConjurerAlertSettings.points[1][4] == cx
-  and ConjurerAnnounce.w == 18 and ConjurerAlertSettings.w == 18, tostring(ConjurerAnnounce.points[1][4]) .. " " .. cx)
+local cx = ConjurerAlertPlay.points[1][4] + 40 + 2 + (24 - 20) / 2
+check("without the panel it's under the cog at the end of the row", ConjurerAnnounce:IsVisible()
+  and ConjurerAnnounce.points[1][2] == ConjurerAlert and ConjurerAnnounce.points[1][4] == cx
+  and ConjurerAlertSettings.points[1][2] == ConjurerAlert and ConjurerAlertSettings.points[1][4] == cx
+  and ConjurerAnnounce.w == 20 and ConjurerAlertSettings.w == 20, tostring(ConjurerAnnounce.points[1][4]) .. " " .. cx)
+-- What shows of each, against the icons, which fill the row's 40.
+local artShown, artTop = 20 * 20 / 27, 20 / 27
+local cogTop = -ConjurerAlertSettings.points[1][5] + artTop
+local annTop = -ConjurerAnnounce.points[1][5] + artTop
+local above, between, below = cogTop, annTop - (cogTop + artShown), 40 - (annTop + artShown)
+check("with the same room above, between and below them", above > 2 and math.abs(above - between) < 1e-9 and math.abs(between - below) < 1e-9,
+  above .. " " .. between .. " " .. below)
 check("the row no wider for it than for the cog alone", ConjurerAlert.w == barWidth + 2 + 24, ConjurerAlert.w .. " " .. barWidth)
 Click(P.sections.alert.body.frameCheck)
 check("the panel back, it's back in the title bar", ConjurerAnnounce:IsVisible() and ConjurerAnnounce.points[1][2] == ConjurerAlertBorder
