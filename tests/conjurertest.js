@@ -101,6 +101,9 @@ M.SetAtlas = function(s, a, useSize)
   if useSize and ATLAS_SIZE[a] then s.w, s.h = ATLAS_SIZE[a][1], ATLAS_SIZE[a][2] end
 end
 M.SetDesaturated = function(s, v) s.desaturated = v end
+M.SetTexCoord = function(s, ...) s.texCoord = { ... } end
+M.SetFlipBookRows = function(s, v) s.rows = v end
+M.SetFlipBookFrames = function(s, v) s.frames = v end
 M.SetAlpha = function(s, a) s.alpha = a end
 M.GetAlpha = function(s) return s.alpha or 1 end
 M.SetFontString = function(s, f) s.fontString = f end
@@ -139,10 +142,19 @@ for _, a in ipairs({ "Options_ListExpand_Left", "_Options_ListExpand_Middle", "O
   "UI-HUD-ActionBar-IconFrame-Down", "UI-HUD-ActionBar-IconFrame-Mouseover", "UI-HUD-ActionBar-Proc-Loop-Flipbook",
   "classicon-mage", "classicon-priest", "classicon-warrior", "classicon-hunter", "classicon-warlock",
   "charactercreate-customize-playbutton", "charactercreate-customize-stopbutton",
-  "gm-icon-settings", "gm-icon-settings-pressed", "gm-icon-settings-hover", "communities-icon-chat" }) do
+  "gm-icon-settings", "gm-icon-settings-pressed", "gm-icon-settings-hover", "communities-icon-chat",
+  "Profession-ProgressBar-frame", "Profession-ProgressBar-BG", "Skillbar_Fill_Flipbook_Alchemy_c60", "Skillbar_Flare_Alchemy_c60" }) do
   KNOWN_ATLASES[a] = true
 end
-C_Texture = { GetAtlasInfo = function(a) if BAD_ATLAS then return nil end return KNOWN_ATLASES[a] and { width = 10 } or nil end }
+-- Where some atlases sit in their files, as the client reports them.
+ATLAS_INFO = {
+  ["Profession-ProgressBar-frame"] = { width = 374, height = 23, file = 8164391,
+    leftTexCoord = 119 / 512, rightTexCoord = 493 / 512, topTexCoord = 1 / 128, bottomTexCoord = 24 / 128 },
+  ["Profession-ProgressBar-BG"] = { width = 374, height = 23, file = 8164391,
+    leftTexCoord = 119 / 512, rightTexCoord = 493 / 512, topTexCoord = 26 / 128, bottomTexCoord = 49 / 128 },
+  ["Skillbar_Fill_Flipbook_Alchemy_c60"] = { width = 1712, height = 1020 },
+}
+C_Texture = { GetAtlasInfo = function(a) if BAD_ATLAS then return nil end return KNOWN_ATLASES[a] and (ATLAS_INFO[a] or { width = 10 }) or nil end }
 
 BAD_TEMPLATES = BAD_TEMPLATES or {}
 CLICK_CASTS, CLICK_USES = {}, {}
@@ -1182,8 +1194,8 @@ if not BARE then
   ns.Profile().water[7] = 5
   ns.Profile().food[7] = 10
   fire("BAG_UPDATE_DELAYED") RunTimers(0)
-  check("the alert has a click button, between its icons and its play button", ConjurerAlertConjure and ConjurerAlertConjure:IsVisible()
-    and ConjurerAlertConjure.parent == ConjurerAlert and ConjurerAlert.w == 40 + 6 + 40 + 6 + 24, ConjurerAlert and ConjurerAlert.w)
+  check("the alert has a click button, between its icons and its Ready button", ConjurerAlertConjure and ConjurerAlertConjure:IsVisible()
+    and ConjurerAlertConjure.parent == ConjurerAlert and ConjurerAlert.w == 40 + 6 + 40 + 6 + 40 + 6 + 24, ConjurerAlert and ConjurerAlert.w)
   check("with every target met, the alert's button conjures what's low", ConjurerAlertConjure.attributes.spell == 10140
     and CB.attributes.type == nil)
   ClickCast(ConjurerAlertConjure)
@@ -2193,10 +2205,39 @@ check("a progress bar under it says how far the conjuring has got", ConjurerAler
   and ConjurerAlertProgress.text.text == "60 of 80 (75%)" and ConjurerAlertProgress.value == 0.75, ConjurerAlertProgress and ConjurerAlertProgress.text.text)
 check("as does the one in the window, with the profile", P.progress and P.progress.text.text == "Solo: 60 of 80 (75%)" and P.progress.value == 0.75,
   P.progress and P.progress.text.text)
+local AP = ConjurerAlertProgress
+if BARE then
+  check("without the art, the progress bars are plain", AP.art == "plain" and P.progress.art == "plain" and AP.status.value == 0.75)
+else
+  check("the progress bars are the professions book's skill bar, with alchemy's liquid", AP.art:find("skill bar (Skillbar_Fill_Flipbook_Alchemy_c60", 1, true) == 1
+    and AP.fill.atlas == "Skillbar_Fill_Flipbook_Alchemy_c60" and P.progress.fill.atlas == "Skillbar_Fill_Flipbook_Alchemy_c60", AP.art)
+  local flip = AP.anim.anims[1]
+  check("the fill flows, a flipbook going round", AP.anim.playing and AP.anim.looping == "REPEAT" and flip.animKind == "FlipBook"
+    and flip.rows == 30 and flip.frames == 60)
+  check("cut by its mask to the progress, as the book cuts it", math.abs(AP.mask.w - (40 * 0.75 - 7 * 16 / 23)) < 0.001
+    and AP.fill.mask == AP.mask and math.abs(P.progress.mask.w - (100 * 0.75 - 7 * 18 / 23)) < 0.001, AP.mask.w)
+  check("with the flare riding its edge while it fills", AP.flare.shown and AP.flare.mask == AP.mask and AP.flare.atlas == "Skillbar_Flare_Alchemy_c60")
+  check("its frame and background keep their round ends on a long bar", AP.art:find("frame in three pieces", 1, true) ~= nil)
+  local pieces, leftEnds = 0, 0
+  for _, tex in ipairs(TEXTURES) do
+    local tc = tex.texCoord
+    if tex.parent == P.progress and tex.texture == 8164391 and tc then
+      pieces = pieces + 1
+      -- The left end is the art's first 8 of its 374 across.
+      if tc[1] == 119 / 512 and math.abs(tc[2] - 127 / 512) < 1e-9 then leftEnds = leftEnds + 1 end
+    end
+  end
+  check("cut from the art's own place in its file", pieces == 6 and leftEnds == 2, pieces .. " pieces, " .. leftEnds .. " left ends")
+end
+Click(P.readyButton)
+check("Ready lit from the window lights the bar's Ready button too", C.armed and ConjurerAlertPlay.glow.shown and ConjurerAlertPlay.anim.playing)
+Click(P.readyButton)
+check("and it goes out with it", not C.armed and not ConjurerAlertPlay.glow.shown and not ConjurerAlertPlay.anim.playing)
 AddItems(8079, 20)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 UI.Refresh()
 check("both fill as you conjure", ConjurerAlertProgress.text.text == "80 of 80 (100%)" and P.progress.text.text == "Solo: 80 of 80 (100%)")
+check("full, the count turns green and the flare goes", AP.text.color[1] == 0.5 and AP.text.color[2] == 1 and (BARE or not AP.flare.shown))
 local AL = P.sections.alert.body
 check("the bar and its count are on to start", AL.progressCheck.checked and AL.progressTextCheck.checked and ConjurerAlertProgress.text.shown)
 Click(AL.progressTextCheck)
@@ -2210,6 +2251,24 @@ check("and stays gone as the bags change", not ConjurerAlertProgress.shown)
 Click(AL.progressCheck)
 Click(AL.progressTextCheck)
 check("both back on", ConjurerAlertProgress:IsVisible() and ConjurerAlertProgress.text.shown and ConjurerAlertProgress.text.text == "80 of 80 (100%)")
+check("the bar sits in the game's dialog frame", ConjurerAlertBorder and ConjurerAlertBorder:IsVisible() and AL.frameCheck.checked
+  and (ConjurerAlertBorder.template == "DialogBorderTemplate" or (BARE and ns.report["alert frame"] ~= "dialog border")), ns.report["alert frame"])
+check("round its icons and its progress bar", ConjurerAlertBorder.points[1][2] == ConjurerAlert and ConjurerAlertBorder.points[1][4] == -26
+  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and ConjurerAlertBorder.points[2][5] == -26)
+check("under the icons, which take the clicks, its background taking a drag", ConjurerAlertBorder.level == ConjurerAlert:GetFrameLevel()
+  and ConjurerAlertBorder.scripts.OnDragStart ~= nil)
+Click(AL.frameCheck)
+check("the border and background can go, keeping the icons, buttons and bar", not ns.db.alert.frame and not ConjurerAlertBorder.shown
+  and ConjurerAlertWater:IsVisible() and ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible() and ConjurerAlertProgress:IsVisible())
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("and stay gone as the bags change", not ConjurerAlertBorder.shown and ConjurerAlert.shown)
+Click(AL.frameCheck)
+check("and come back", ns.db.alert.frame and ConjurerAlertBorder.shown and AL.frameCheck.checked)
+Click(AL.progressCheck)
+check("without the progress bar the frame closes up under the icons", ConjurerAlertBorder.points[2][2] == ConjurerAlert)
+Click(AL.progressCheck)
+check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress)
+check("the debug report says how the bar is dressed", table.concat(ns.DebugReport(), "\n"):find(", frame on (", 1, true) ~= nil)
 AddItems(8079, 20)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 UI.Refresh()
@@ -2219,6 +2278,7 @@ ns.Profile().water[7] = 0
 ns.Profile().food[7] = 0
 UI.Refresh() fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("with no targets it says so", P.progress.text.text == "Solo: Nothing to conjure" and ConjurerAlertProgress.text.text == "Nothing to conjure")
+check("and shows no fill", BARE or (not AP.fill.shown and not AP.flare.shown))
 EnterCombatLockdown() fire("PLAYER_REGEN_DISABLED") RunTimers(0) fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("Always still keeps to the combat choice: out of combat only by default", not ConjurerAlert.shown)
 COMBAT = false fire("PLAYER_REGEN_ENABLED") RunTimers(0) fire("BAG_UPDATE_DELAYED") RunTimers(0)
@@ -2266,10 +2326,13 @@ check("with how many are left", tostring(ConjurerAlertWater.count.text) == "5")
 check("its icon is the best water", ConjurerAlertWater.icon.texture == "itemicon:8079")
 check("and the proc glow", ConjurerAlertWater.glow.shown and ConjurerAlertWater.anim.playing)
 local CONJ_W = ConjurerAlertConjure and 46 or 0
-check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + CONJ_W + 24, ConjurerAlert.w)
-check("with a play button and a cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
-check("in Blizzard's art", (ConjurerAlertPlay.art.atlas == "charactercreate-customize-playbutton" and ConjurerAlertSettings.art.atlas == "gm-icon-settings")
-  or (BARE and ConjurerAlertPlay.label.text == "Go"))
+check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + CONJ_W + 46 + 24, ConjurerAlert.w)
+check("with a Ready button and a cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
+check("the Ready button is the window's, as big as the icons, play over it", ConjurerAlertPlay.w == 40
+  and ((ConjurerAlertPlay.play.shown and ConjurerAlertPlay.play.atlas == "charactercreate-customize-playbutton"
+    and ConjurerAlertSettings.art.atlas == "gm-icon-settings")
+  or (BARE and ConjurerAlertPlay.playText.shown and ConjurerAlertPlay.playText.text == "Start")))
+check("not lit while Ready is off", not ConjurerAlertPlay.glow.shown)
 check("no sound unless asked for", not Played(3175))
 check("the log says when it came up", table.concat(ConjurerLog.entries, "\n"):find("alert: water low, 5 left (alert below 20)", 1, true) ~= nil)
 ClearBags()
@@ -2284,7 +2347,7 @@ check("off again, only the best rank counts", ns.db.alert.lowerRanks == false an
 ClearBags()
 AddItems(8079, 5)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
-check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 6 + CONJ_W + 24
+check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 6 + CONJ_W + 46 + 24
   and ConjurerAlertWater.points[1][4] == 0 and ConjurerAlertFood.points[1][4] == 46)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("hidden in combat", not ConjurerAlert.shown)
@@ -2295,7 +2358,7 @@ check("set to in combat, it hides out of combat", ns.db.alert.when == "in" and n
 check("and the three boxes act as one choice", P.sections.alert.body.when["in"].checked and not P.sections.alert.body.when.out.checked)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("and shows in combat", ConjurerAlert.shown)
-check("where its play button greys out, since conjuring can't start in a fight", ConjurerAlertPlay.alpha == 0.5 and ConjurerAlertPlay.art.desaturated == true)
+check("where its play button greys out, since conjuring can't start in a fight", ConjurerAlertPlay.alpha == 0.5 and ConjurerAlertPlay.icon.desaturated == true)
 fire("PLAYER_REGEN_ENABLED") RunTimers(0)
 Click(P.sections.alert.body.when.always)
 check("set to in and out of combat, it shows out of combat", ns.db.alert.when == "always" and ConjurerAlert.shown)
@@ -2335,8 +2398,9 @@ fire("BAG_UPDATE_DELAYED") RunTimers(0)
 ns.Profile().water[7] = 40
 Click(ConjurerAlertPlay)
 check("its play button starts conjuring", C.armed)
-check("and turns into a stop button", ConjurerAlertPlay.art.atlas == "charactercreate-customize-stopbutton"
-  or (BARE and ConjurerAlertPlay.label.text == "Stop"))
+check("and turns into a stop button", (ConjurerAlertPlay.stop.shown and not ConjurerAlertPlay.play.shown
+  and ConjurerAlertPlay.stop.atlas == "charactercreate-customize-stopbutton") or (BARE and ConjurerAlertPlay.playText.text == "Stop"))
+check("lit up like the window's Ready button", ConjurerAlertPlay.glow.shown and ConjurerAlertPlay.anim.playing and ConjurerAlertPlay.highlighted)
 AddItems(8079, 30)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("started from the alert, it stays up while conjuring runs", ConjurerAlertWater:IsVisible() and tostring(ConjurerAlertWater.count.text) == "30")
@@ -2780,6 +2844,11 @@ const scenarios = [
     local ns = Login()
     ns.UI.Toggle() RunTimers(0)
     check("without flipbooks the glow pulses", ns.report["ready glow"] == "pulse")
+    local sheets = 0
+    for _, tex in ipairs(TEXTURES) do
+      if tex.atlas == "Skillbar_Fill_Flipbook_Alchemy_c60" and tex.shown then sheets = sheets + 1 end
+    end
+    check("and the progress bar is plain, not every frame of the sheet at once", ConjurerProgress.art == "plain" and sheets == 0, sheets)
   ` },
 ];
 
@@ -2805,7 +2874,7 @@ const bareTemplates = ['ButtonFrameTemplate', 'PortraitFrameTemplate', 'Backdrop
   'UIPanelCloseButton', 'UICheckButtonTemplate', 'ChatConfigCheckButtonTemplate', 'MinimalSliderWithSteppersTemplate',
   'MinimalSliderTemplate', 'UISliderTemplate', 'OptionsSliderTemplate', 'ConjurerScrollFrameTemplate',
   'UIPanelScrollFrameTemplate', 'InsetFrameTemplate', 'SecureHandlerStateTemplate', 'PanelTabButtonTemplate',
-  'InputBoxTemplate', 'CooldownFrameTemplate', 'InsecureActionButtonTemplate'];
+  'InputBoxTemplate', 'CooldownFrameTemplate', 'InsecureActionButtonTemplate', 'DialogBorderTemplate'];
 const BARE = process.argv.includes('--bare');
 const pre = (BARE ? 'BARE=true\nBAD_ATLAS=true\nBAD_TEMPLATES={' + bareTemplates.map(t => t + '=true').join(',') + '}\n' : '')
   + (process.argv.includes('--verbose') ? 'VERBOSE=true\n' : '');

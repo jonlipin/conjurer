@@ -1,10 +1,11 @@
 -- Conjurer
 -- Alert: the quick access bar. Icons for your conjured water and food, shown when they run low or
--- all the time, with the click-to-conjure button, play and stop for Ready, the cog and a progress bar.
+-- all the time, with the click-to-conjure button, the Ready button, the cog and a progress bar, in
+-- the game's dialog frame (or without it).
 --
 -- One icon per kind that is low, side by side, each dressed as an action bar button with the proc
--- glow and how many you have left. Beside them, a play button that starts conjuring (stop while
--- it runs) and a cog that opens Conjurer. Started from here, the alert stays up until conjuring
+-- glow and how many you have left. Beside them, a Ready button like the window's, lit while Ready
+-- is (play starts conjuring, stop ends it), and a cog that opens Conjurer. Started from here, the alert stays up until conjuring
 -- stops, so its stop button stays in reach. It can show out of combat (the default), in combat, or
 -- always, only for a kind you can conjure. "Low" counts your best rank and anything better you can
 -- use (another mage's), since that is what you conjure; lower ranks count only when ticked.
@@ -17,7 +18,10 @@ ns.Alert = A
 local SIZE = 40
 local GAP = 6
 local CONTROLS = 24
-local holder, controls, playButton, cogButton, conjureButton, announceButton, progress
+local PROGRESS_H, PROGRESS_GAP = 16, 6
+-- The dialog frame's rail sits 12 to 21 in from its edge, so the frame reaches this far past the bar.
+local FRAME_PAD = 26
+local holder, controls, playButton, cogButton, conjureButton, announceButton, progress, border
 local icons = {}
 local wasLow = { water = false, food = false }
 A.combat = false
@@ -176,9 +180,6 @@ local function ArtButton(parent, size, name, up, down, over, fallbackText)
 	return b
 end
 
-local PLAY = { "charactercreate-customize-playbutton", "charactercreate-customize-playbutton-down" }
-local STOP = { "charactercreate-customize-stopbutton", "charactercreate-customize-stopbutton-down" }
-
 -- The icon for an entry, made the first time it's needed.
 local function Icon(e)
 	if icons[e.key] then return icons[e.key] end
@@ -210,6 +211,36 @@ local function Icon(e)
 	return b
 end
 
+-- The game's dialog frame round the bar, as on its popups. Its background takes a drag too.
+local function BuildBorder()
+	local ok, made = pcall(CreateFrame, "Frame", "ConjurerAlertBorder", holder, "DialogBorderTemplate")
+	if ok and made then
+		border = made
+		report["alert frame"] = "dialog border"
+	else
+		ok, made = pcall(CreateFrame, "Frame", "ConjurerAlertBorder", holder, "BackdropTemplate")
+		border = (ok and made) or CreateFrame("Frame", "ConjurerAlertBorder", holder)
+		if border.SetBackdrop then
+			border:SetBackdrop({
+				bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+				edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+				tile = true, tileSize = 32, edgeSize = 32,
+				insets = { left = 11, right = 12, top = 12, bottom = 11 },
+			})
+			report["alert frame"] = "dialog backdrop"
+		else
+			local bg = border:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints()
+			bg:SetColorTexture(0.05, 0.05, 0.07, 0.85)
+			report["alert frame"] = "plain"
+		end
+	end
+	-- Under the icons and buttons, which are a level up.
+	border:SetFrameLevel(holder:GetFrameLevel())
+	border:EnableMouse(true)
+	Drag(border)
+end
+
 local function Build()
 	if holder then return end
 	ns.Stage("building the alert")
@@ -219,6 +250,7 @@ local function Build()
 	holder:SetMovable(true)
 	holder:SetClampedToScreen(true)
 	Place()
+	BuildBorder()
 	for _, kind in ipairs(ns.KIND_ORDER) do Icon({ key = kind, kind = kind }) end
 	-- Conjures by click, one cast each: the next row short of its target, or when every target is met,
 	-- whatever the alert shows as low.
@@ -229,10 +261,8 @@ local function Build()
 		return nil
 	end)
 
-	controls = CreateFrame("Frame", nil, holder)
-	controls:SetSize(CONTROLS, SIZE)
-	playButton = ArtButton(controls, 22, "ConjurerAlertPlay", PLAY[1], PLAY[2], nil, "Go")
-	playButton:SetPoint("TOP", controls, "TOP", 0, 0)
+	-- Ready, as in the window: the next row's icon with play over it, glowing while Ready is lit.
+	playButton = ns.UI.NewReadyButton(holder, "ConjurerAlertPlay", SIZE)
 	playButton:SetScript("OnClick", ns.Guard("alert play", A.TogglePlay))
 	playButton:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -246,9 +276,11 @@ local function Build()
 	end)
 	playButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	Drag(playButton)
+	controls = CreateFrame("Frame", nil, holder)
+	controls:SetSize(CONTROLS, SIZE)
 	cogButton = ArtButton(controls, 18, "ConjurerAlertSettings", "gm-icon-settings", "gm-icon-settings-pressed",
 		"gm-icon-settings-hover", "...")
-	cogButton:SetPoint("BOTTOM", controls, "BOTTOM", 0, 0)
+	cogButton:SetPoint("CENTER", controls, "CENTER", 0, 0)
 	cogButton:SetScript("OnClick", ns.Guard("alert settings", function() ns.UI.Show() end))
 	cogButton:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -258,37 +290,47 @@ local function Build()
 	end)
 	cogButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	Drag(cogButton)
-	report["alert buttons"] = (playButton.up and "play art" or "words") .. ", " .. (cogButton.up and "cog art" or "words")
+	report["alert buttons"] = (playButton.playArt and "play art" or "words") .. ", " .. (cogButton.up and "cog art" or "words")
 
 	-- The announce button, when it's turned on, after the click-to-conjure one.
 	announceButton = ns.Announce and ns.Announce.Make(holder, SIZE)
 	if announceButton then Drag(announceButton) end
 
 	-- How far the conjuring has got, right under the icons and buttons.
-	progress = ns.UI.NewProgress(holder, "ConjurerAlertProgress", SIZE, 10)
-	progress:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -5)
-	progress:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", 0, -5)
+	progress = ns.UI.NewProgress(holder, "ConjurerAlertProgress", SIZE, PROGRESS_H)
+	progress:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -PROGRESS_GAP)
+	progress:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", 0, -PROGRESS_GAP)
 	Drag(progress)
 
 	holder:Hide()
 	ns.Stage("idle")
 end
 
--- The play button shows stop while conjuring runs, and greys out in combat, when it can't start.
+-- The Ready button lights up while Ready is, as the window's does, and greys out in combat, when
+-- conjuring can't start.
 local function PaintPlay()
 	if not playButton then return end
-	local armed = ns.Conjure and ns.Conjure.armed
-	if playButton.up then
-		local set = armed and STOP or PLAY
-		playButton.up = ns.HasAtlas(set[1]) and set[1] or playButton.up
-		playButton.down = ns.HasAtlas(set[2]) and set[2] or playButton.up
-		playButton.art:SetAtlas(playButton.up)
-	elseif playButton.label then
-		playButton.label:SetText(armed and "Stop" or "Go")
-	end
-	local usable = armed or not Fighting()
-	playButton.art:SetDesaturated(not usable)
+	ns.UI.PaintReady(playButton)
+	local usable = (ns.Conjure and ns.Conjure.armed) or not Fighting()
+	if not usable then playButton.icon:SetDesaturated(true) end
 	playButton:SetAlpha(usable and 1 or 0.5)
+end
+
+-- The frame round everything shown, the progress bar included, or no frame when it's turned off.
+function A.PaintBorder()
+	if not border then return end
+	local on = ns.db.alert.frame and true or false
+	local withBar = progress and ns.db.alert.progress
+	border:SetShown(on)
+	border:ClearAllPoints()
+	border:SetPoint("TOPLEFT", holder, "TOPLEFT", -FRAME_PAD, FRAME_PAD)
+	border:SetPoint("BOTTOMRIGHT", withBar and progress or holder, "BOTTOMRIGHT", FRAME_PAD, -FRAME_PAD)
+	-- Kept on screen whole: the frame when it shows, the progress bar under the icons always.
+	if holder.SetClampRectInsets then
+		local below = withBar and (PROGRESS_GAP + PROGRESS_H) or 0
+		local pad = on and FRAME_PAD or 0
+		holder:SetClampRectInsets(-pad, pad, pad, -(below + pad))
+	end
 end
 
 -- The progress bar under the icons, and the count written on it, each shown as the options say.
@@ -298,6 +340,7 @@ function A.PaintProgress()
 	progress:SetShown(db.progress and true or false)
 	progress.text:SetShown(db.progressText and true or false)
 	if db.progress then progress:Refresh() end
+	A.PaintBorder()
 end
 
 -- Shows the icons for whatever is low right now. quiet: take the state without a sound (login).
@@ -366,6 +409,9 @@ function A.Update(quiet)
 			announceButton:Hide()
 		end
 	end
+	playButton:ClearAllPoints()
+	playButton:SetPoint("LEFT", holder, "LEFT", x, 0)
+	x = x + SIZE + GAP
 	controls:SetPoint("LEFT", holder, "LEFT", x, 0)
 	holder:SetWidth(x + CONTROLS)
 	PaintPlay()
@@ -438,6 +484,8 @@ ns.debugSources[#ns.debugSources + 1] = function()
 			.. ", " .. tostring(A.WHEN_LABEL[db.when or "out"]):lower()
 			.. ", water " .. A.Total("water") .. " (below " .. tostring(db.water) .. "), food " .. A.Total("food")
 			.. " (below " .. tostring(db.food) .. "), showing " .. tostring(report["alert showing"] or "nothing")
-			.. ", buttons " .. tostring(report["alert buttons"] or "not built"),
+			.. ", buttons " .. tostring(report["alert buttons"] or "not built")
+			.. ", frame " .. (db.frame and "on" or "off") .. " (" .. tostring(report["alert frame"] or "not built") .. ")"
+			.. ", progress bar " .. (db.progress and "on" or "off") .. " (" .. tostring(report["progress bar art"] or "not built") .. ")",
 	}
 end

@@ -160,11 +160,13 @@ rewrites it as your bags change, out of combat. Delete it and Conjurer leaves it
 
 ## The quick access bar
 
-A small bar you can keep on screen: an icon for your conjured water and one for your food, each
-with how many you have, then the click-to-conjure button, the announce button (when it's turned
-on), a **play** button for Ready (stop while it runs) and a **cog** that opens Conjurer, with a
-progress bar underneath showing how far the conjuring has got. The same progress bar runs across
-the Conjurer window above the list; hover either one for every row's count.
+A small bar you can keep on screen, in the game's dialog frame: an icon for your conjured water and
+one for your food, each with how many you have, then the click-to-conjure button, the announce
+button (when it's turned on), a **Ready** button like the window's (play to start, stop while it
+runs, glowing while Ready is lit) and a **cog** that opens Conjurer, with a progress bar underneath
+showing how far the conjuring has got. The same progress bar runs across the Conjurer window above
+the list; it's the professions book's skill bar, with a flowing blue-green fill. Hover either one
+for every row's count.
 
 - **Show it**: **Always**, as a quick bar, or **Only when low**. Low is below the amount you set
   (20 water and 10 food to start with); a low icon glows like a spell alert, and a kept mana gem
@@ -172,11 +174,13 @@ the Conjurer window above the list; hover either one for every row's count.
 - It counts your best rank, the one you conjure (and any better one another mage gave you), so a
   pile of a lower rank doesn't hide that you're out; tick **Count lower ranks too** to count every
   rank you're high enough to use.
+- **Show its border and background**, or just the icons, buttons and progress bar.
 - **Show the progress bar** under it, **With its count written on it** or without.
 - **Combat**: out of combat (the default), in combat, or in and out of combat.
 - Click an icon to conjure what it shows (one cast, out of combat), right-click it to start or stop
   Ready. Started from the bar, it stays up until conjuring stops, so stop stays in reach.
-- Drag the bar by any of its icons to move it. A sound when something runs low is optional.
+- Drag the bar by its frame or any of its icons to move it. A sound when something runs low is
+  optional.
 
 ## The announce button
 

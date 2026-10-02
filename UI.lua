@@ -440,49 +440,172 @@ local function MakeGlow(button, size)
 end
 UI.MakeGlow = MakeGlow
 
--- A progress bar: the game's mana bar art on its casting bar background when the client has
--- them, else a plain bar, with the count written across it. :SetProgress(done, total, prefix).
+local function FirstAtlas(list)
+	for _, atlas in ipairs(list) do
+		if ns.HasAtlas(atlas) then return atlas end
+	end
+	return nil
+end
+
+-- The progress bar is the professions book's skill bar, this client's own: a bronze frame on a dark
+-- background, and alchemy's fill, a blue-green liquid, flowing through a mask cut to the progress.
+-- A plain bar stands in when any of that art is missing. The count is written across it.
+-- :SetProgress(done, total, prefix); :Refresh(prefix) takes them from what Ready is working to.
+local SKILL_ART = {
+	frame = { "Profession-ProgressBar-frame", "profession-progressbar-frame-c60" },
+	bg = { "Profession-ProgressBar-BG", "profession-progressbar-bg-c60" },
+	fill = { "Skillbar_Fill_Flipbook_Alchemy_c60", "Skillbar_Fill_Flipbook_Alchemy" },
+	flare = { "Skillbar_Flare_Alchemy_c60", "Skillbar_Flare_Alchemy" },
+}
+-- The art is 23 high. As in the book, the fill starts 2 in and 3 down and is 18 high, its mask
+-- starts 1 further in and stops 7 short of the progress, and the flare rides the mask's edge.
+local SKILL_H = 23
+local SKILL_CAP = 8 -- the round end of the frame and background, kept whole on a long bar
+
+-- An atlas laid in three pieces, so a long bar stretches only its middle and keeps its round ends.
+-- One stretched piece when the client doesn't say where the atlas sits in its file.
+local function ThreeSlice(parent, sub, atlas, scale)
+	local info = C_Texture.GetAtlasInfo(atlas)
+	local file = info and (info.file or info.filename)
+	if not (file and info.leftTexCoord and info.width and info.width > SKILL_CAP * 2) then
+		local t = parent:CreateTexture(nil, "ARTWORK", nil, sub)
+		t:SetAtlas(atlas)
+		t:SetAllPoints()
+		return "one piece", { t }
+	end
+	local L, R, T, B = info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord
+	local u = (R - L) * SKILL_CAP / info.width
+	local pieces = {}
+	for i, across in ipairs({ { L, L + u }, { L + u, R - u }, { R - u, R } }) do
+		local t = parent:CreateTexture(nil, "ARTWORK", nil, sub)
+		t:SetTexture(file)
+		t:SetTexCoord(across[1], across[2], T, B)
+		pieces[i] = t
+	end
+	local left, middle, right = pieces[1], pieces[2], pieces[3]
+	left:SetPoint("TOPLEFT")
+	left:SetPoint("BOTTOMLEFT")
+	left:SetWidth(SKILL_CAP * scale)
+	right:SetPoint("TOPRIGHT")
+	right:SetPoint("BOTTOMRIGHT")
+	right:SetWidth(SKILL_CAP * scale)
+	middle:SetPoint("TOPLEFT", left, "TOPRIGHT")
+	middle:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
+	return "three pieces", pieces
+end
+
+-- The skill bar's pieces on bar, scaled by s, or nil when the client lacks the art or flipbooks.
+local function BuildSkillBar(bar, s)
+	local art = {}
+	for key, list in pairs(SKILL_ART) do art[key] = FirstAtlas(list) end
+	if not (art.frame and art.bg and art.fill and bar.CreateMaskTexture) then return nil end
+	local fill = bar:CreateTexture(nil, "ARTWORK", nil, 2)
+	fill:SetAtlas(art.fill)
+	-- The fill is a flipbook: two columns of frames 34 high, played over two seconds, round and round.
+	local info = C_Texture.GetAtlasInfo(art.fill)
+	local rows = math.floor(((info and info.height) or 1020) / 34)
+	local anim = fill:CreateAnimationGroup()
+	local ok = rows > 0 and pcall(function()
+		local flip = anim:CreateAnimation("FlipBook")
+		flip:SetDuration(2)
+		flip:SetFlipBookColumns(2)
+		flip:SetFlipBookRows(rows)
+		flip:SetFlipBookFrames(rows * 2)
+		flip:SetFlipBookFrameWidth(0)
+		flip:SetFlipBookFrameHeight(0)
+	end)
+	if not ok then
+		-- Unplayed, the sheet would show every frame at once.
+		fill:Hide()
+		return nil
+	end
+	anim:SetLooping("REPEAT")
+	fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 2 * s, -3 * s)
+	fill:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 2 * s, 2 * s)
+	local mask = bar:CreateMaskTexture()
+	mask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask:SetPoint("TOPLEFT", fill, "TOPLEFT", s, 0)
+	mask:SetPoint("BOTTOMLEFT", fill, "BOTTOMLEFT", s, 0)
+	fill:AddMaskTexture(mask)
+	local flare
+	if art.flare then
+		flare = bar:CreateTexture(nil, "ARTWORK", nil, 3)
+		flare:SetAtlas(art.flare)
+		flare:SetBlendMode("ADD")
+		flare:SetSize(53 * s, 16 * s)
+		flare:SetPoint("RIGHT", mask, "RIGHT")
+		flare:AddMaskTexture(mask)
+	end
+	ThreeSlice(bar, 1, art.bg, s)
+	local frameStyle = ThreeSlice(bar, 4, art.frame, s)
+	anim:Play()
+	return { fill = fill, anim = anim, mask = mask, flare = flare,
+		art = "skill bar (" .. art.fill .. ", frame in " .. frameStyle .. ")" }
+end
+
 local function NewProgress(parent, name, width, height)
-	local bar = CreateFrame("StatusBar", name, parent)
-	bar:SetSize(width or 100, height or 12)
-	bar:SetMinMaxValues(0, 1)
-	bar:SetValue(0)
-	if ns.HasAtlas("UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana") then
-		bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-		local fill = bar:GetStatusBarTexture()
-		if fill and fill.SetAtlas then fill:SetAtlas("UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana") end
-		bar.art = "mana bar"
+	local bar = CreateFrame("Frame", name, parent)
+	height = height or 16
+	bar:SetSize(width or 100, height)
+	bar.value = 0
+	local s = height / SKILL_H
+	local skill = BuildSkillBar(bar, s)
+	local top = bar
+	if skill then
+		bar.fill, bar.anim, bar.mask, bar.flare, bar.art = skill.fill, skill.anim, skill.mask, skill.flare, skill.art
 	else
-		bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-		bar:SetStatusBarColor(0.25, 0.55, 1)
-		bar.art = "plain"
-	end
-	local bg = bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetPoint("TOPLEFT", -1, 1)
-	bg:SetPoint("BOTTOMRIGHT", 1, -1)
-	if ns.HasAtlas("ui-castingbar-background") then
-		bg:SetAtlas("ui-castingbar-background")
-	else
+		local status = CreateFrame("StatusBar", nil, bar)
+		status:SetAllPoints()
+		status:SetMinMaxValues(0, 1)
+		status:SetValue(0)
+		status:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+		status:SetStatusBarColor(0.25, 0.55, 1)
+		local bg = status:CreateTexture(nil, "BACKGROUND")
+		bg:SetPoint("TOPLEFT", -1, 1)
+		bg:SetPoint("BOTTOMRIGHT", 1, -1)
 		bg:SetColorTexture(0, 0, 0, 0.65)
+		bar.status, bar.art = status, "plain"
+		top = status
 	end
-	bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	bar.text:SetPoint("CENTER", 0, 1)
+	-- Outlined, so it reads on the moving liquid.
+	bar.text = top:CreateFontString(nil, "OVERLAY",
+		_G.GameFontHighlightSmallOutline and "GameFontHighlightSmallOutline" or "GameFontHighlightSmall")
+	bar.text:SetPoint("CENTER", bar, "CENTER", 0, 0)
+	-- How much shows: the mask cut to the progress, or the plain bar's value.
+	function bar:Paint()
+		local p = self.value or 0
+		if self.mask then
+			local w = (self:GetWidth() or 0) * p - 7 * s
+			self.fill:SetShown(w > 0)
+			if w > 0 then self.mask:SetWidth(w) end
+			if self.flare then self.flare:SetShown(w > 0 and p < 1) end
+		else
+			self.status:SetValue(p)
+			if p >= 1 then self.status:SetStatusBarColor(0.4, 0.85, 0.4) else self.status:SetStatusBarColor(0.25, 0.55, 1) end
+		end
+	end
 	function bar:SetProgress(done, total, prefix)
 		if not total or total <= 0 then
-			self:SetValue(0)
+			self.value = 0
 			self.text:SetText((prefix or "") .. "Nothing to conjure")
-			return
+			self.text:SetTextColor(1, 1, 1)
+		else
+			self.value = math.min(done / total, 1)
+			self.text:SetText((prefix or "") .. done .. " of " .. total .. " (" .. math.floor(done * 100 / total) .. "%)")
+			if done >= total then self.text:SetTextColor(0.5, 1, 0.5) else self.text:SetTextColor(1, 1, 1) end
 		end
-		self:SetValue(done / total)
-		self.text:SetText((prefix or "") .. done .. " of " .. total .. " (" .. math.floor(done * 100 / total) .. "%)")
-		if done >= total then self:SetStatusBarColor(0.4, 0.85, 0.4) else self:SetStatusBarColor(1, 1, 1) end
-		if self.art == "plain" and done < total then self:SetStatusBarColor(0.25, 0.55, 1) end
+		self:Paint()
 	end
 	-- With what Ready is working to now; the window adds the profile in front.
 	function bar:Refresh(prefix)
 		local done, total = ns.Conjure.Progress()
 		self:SetProgress(done, total, prefix)
 	end
+	-- A bar stretched between two points learns its width late.
+	bar:SetScript("OnSizeChanged", function(self) self:Paint() end)
+	bar:SetScript("OnShow", function(self)
+		if self.anim and not self.anim:IsPlaying() then self.anim:Play() end
+	end)
 	-- Hovering lists every row.
 	bar:EnableMouse(true)
 	bar:SetScript("OnEnter", function(self)
@@ -508,40 +631,67 @@ UI.NewProgress = NewProgress
 local PLAY_ART = { "charactercreate-customize-playbutton", "common-icon-forwardarrow", "CGuy_Play" }
 local STOP_ART = { "charactercreate-customize-stopbutton", "CGuy_Stop" }
 
-local function FirstAtlas(list)
-	for _, atlas in ipairs(list) do
-		if ns.HasAtlas(atlas) then return atlas end
-	end
-	return nil
+-- A Ready button: an action bar icon with play over it (stop while Ready is lit), glowing like a
+-- spell alert while it's lit. The window has one, and so does the quick access bar.
+local function NewReadyButton(parent, name, size)
+	local b = CreateFrame("Button", name, parent)
+	b:SetSize(size, size)
+	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	DressIcon(b, size)
+	local play, stop = FirstAtlas(PLAY_ART), FirstAtlas(STOP_ART)
+	b.play = b:CreateTexture(nil, "OVERLAY", nil, 2)
+	b.play:SetPoint("CENTER")
+	b.play:SetSize(size * 30 / 42, size * 30 / 42)
+	if play then b.play:SetAtlas(play) end
+	b.stop = b:CreateTexture(nil, "OVERLAY", nil, 2)
+	b.stop:SetPoint("CENTER")
+	b.stop:SetSize(size * 26 / 42, size * 26 / 42)
+	if stop then b.stop:SetAtlas(stop) end
+	b.stop:Hide()
+	b.playArt, b.stopArt = play, stop
+	-- Without either piece of art, words say it instead.
+	b.playText = b:CreateFontString(nil, "OVERLAY", "GameFontNormalOutline")
+	b.playText:SetPoint("BOTTOM", 0, 3)
+	b.playText:Hide()
+	b.glow, b.anim, b.glowStyle = MakeGlow(b, size)
+	return b
 end
+UI.NewReadyButton = NewReadyButton
+
+-- A Ready button as things stand: the row it conjures, lit while Ready is, play or stop over it.
+local function PaintReady(b)
+	local C = ns.Conjure
+	local row = (C.armed and C.placed) or C.CurrentRow() or ns.TopKnown("water") or ns.WATER[#ns.WATER]
+	b.icon:SetTexture(ns.SpellIcon(row))
+	b.icon:SetDesaturated(not ns.isMage)
+	if C.armed then
+		b.glow:Show()
+		if not b.anim:IsPlaying() then b.anim:Play() end
+		b:LockHighlight()
+	else
+		b.anim:Stop()
+		b.glow:Hide()
+		b:UnlockHighlight()
+	end
+	-- Play while there is something to start (greyed when there isn't), stop while lit.
+	local canStart = ns.isMage and C.CurrentRow() ~= nil
+	b.play:SetShown(not C.armed and b.playArt ~= nil)
+	b.play:SetDesaturated(not canStart)
+	b.play:SetAlpha(canStart and 1 or 0.45)
+	b.stop:SetShown(C.armed and b.stopArt ~= nil)
+	local missing = C.armed and not b.stopArt or (not C.armed and not b.playArt)
+	b.playText:SetShown(missing and true or false)
+	b.playText:SetText(C.armed and "Stop" or "Start")
+	b.playText:SetAlpha((C.armed or canStart) and 1 or 0.45)
+end
+UI.PaintReady = PaintReady
 
 local function BuildReadyBar()
-	readyButton = CreateFrame("Button", "ConjurerReadyButton", frame)
-	readyButton:SetSize(42, 42)
+	readyButton = NewReadyButton(frame, "ConjurerReadyButton", 42)
 	readyButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 72, -32)
-	readyButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	DressIcon(readyButton, 42)
-
-	local play, stop = FirstAtlas(PLAY_ART), FirstAtlas(STOP_ART)
-	readyButton.play = readyButton:CreateTexture(nil, "OVERLAY", nil, 2)
-	readyButton.play:SetPoint("CENTER")
-	readyButton.play:SetSize(30, 30)
-	if play then readyButton.play:SetAtlas(play) end
-	readyButton.stop = readyButton:CreateTexture(nil, "OVERLAY", nil, 2)
-	readyButton.stop:SetPoint("CENTER")
-	readyButton.stop:SetSize(26, 26)
-	if stop then readyButton.stop:SetAtlas(stop) end
-	readyButton.stop:Hide()
-	readyButton.playArt, readyButton.stopArt = play, stop
-	-- Without either piece of art, words say it instead.
-	readyButton.playText = readyButton:CreateFontString(nil, "OVERLAY", "GameFontNormalOutline")
-	readyButton.playText:SetPoint("BOTTOM", 0, 3)
-	readyButton.playText:Hide()
-	report["ready play art"] = (play or "none") .. " / " .. (stop or "none")
-
-	local style
-	readyGlow, readyAnim, style = MakeGlow(readyButton, 42)
-	report["ready glow"] = style
+	readyGlow, readyAnim = readyButton.glow, readyButton.anim
+	report["ready play art"] = (readyButton.playArt or "none") .. " / " .. (readyButton.stopArt or "none")
+	report["ready glow"] = readyButton.glowStyle
 
 	readyButton:SetScript("OnClick", Guard("Ready button", function(_, which)
 		if which == "RightButton" and ns.Conjure.armed then
@@ -574,9 +724,9 @@ local function BuildReadyBar()
 		"Click, then press the key (or a side mouse button) you want to hold to conjure. Conjurer only uses it while Ready is lit; the rest of the time it does whatever you have it bound to. Escape cancels.")
 
 	-- How far the conjuring has got, right across the window above the list.
-	progress = NewProgress(frame, "ConjurerProgress", 100, 12)
-	progress:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -88)
-	progress:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -88)
+	progress = NewProgress(frame, "ConjurerProgress", 100, 18)
+	progress:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -85)
+	progress:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -85)
 
 	-- Conjuring by click instead: one cast per click, no key and no Ready needed.
 	clickButton = ns.Click and ns.Click.Make("ConjurerClickButton", frame, 40)
@@ -1206,7 +1356,7 @@ local function BuildAlert(body)
 	local on = NewCheck(body, "Show the quick access bar",
 		function() return ns.db.alert.enabled end,
 		function(v) ns.db.alert.enabled = v ns.Alert.Update() end,
-		"Your water and food with how many you have (a click conjures them), the click-to-conjure button, play and stop for Ready, the cog, and how far the conjuring has got. Drag it anywhere.")
+		"Your water and food with how many you have (a click conjures them), the click-to-conjure button, the Ready button, the cog, and how far the conjuring has got. Drag it anywhere.")
 	on:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
 	y = y + 30
 	-- Always, or only when something runs low: two boxes that work as one choice.
@@ -1230,6 +1380,14 @@ local function BuildAlert(body)
 		sx = sx + 30 + math.max(60, #def.label * 7)
 	end
 	y = y + 30
+	-- The frame round it, or just its icons, buttons and progress bar.
+	local framed = NewCheck(body, "Show its border and background",
+		function() return ns.db.alert.frame end,
+		function(v) ns.db.alert.frame = v ns.Alert.PaintBorder() end,
+		"The game's dialog frame round the bar. Off: just its icons, buttons and progress bar.")
+	framed:SetPoint("TOPLEFT", body, "TOPLEFT", 34, -y)
+	body.frameCheck = framed
+	y = y + 26
 	-- The progress bar under it, and the count written on it.
 	local bar = NewCheck(body, "Show the progress bar",
 		function() return ns.db.alert.progress end,
@@ -1288,7 +1446,7 @@ local function BuildAlert(body)
 	local hint = Text(body, "GameFontDisableSmall")
 	hint:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y)
 	hint:SetWidth(540)
-	hint:SetText("Drag the bar by any of its icons to move it. Its play button starts Ready; the cog opens this window.")
+	hint:SetText("Drag the bar by its frame or any of its icons to move it. Its Ready button starts Ready; the cog opens this window.")
 	y = y + 22
 	body:SetHeight(y + 4)
 end
@@ -1803,28 +1961,7 @@ function UI.Refresh()
 	if C.armed then readyTitle:SetTextColor(0.35, 0.85, 1) else readyTitle:SetTextColor(1, 0.82, 0) end
 	readyDetail:SetText(detail)
 	if progress then progress:Refresh(ns.PROFILE_BY_KEY[ns.ProfileKey()].label .. ": ") end
-	local row = (C.armed and C.placed) or C.CurrentRow() or ns.TopKnown("water") or ns.WATER[#ns.WATER]
-	readyButton.icon:SetTexture(ns.SpellIcon(row))
-	readyButton.icon:SetDesaturated(not ns.isMage)
-	if C.armed then
-		readyGlow:Show()
-		if not readyAnim:IsPlaying() then readyAnim:Play() end
-		readyButton:LockHighlight()
-	else
-		readyAnim:Stop()
-		readyGlow:Hide()
-		readyButton:UnlockHighlight()
-	end
-	-- Play while there is something to start (greyed when there isn't), stop while lit.
-	local canStart = ns.isMage and C.CurrentRow() ~= nil
-	readyButton.play:SetShown(not C.armed and readyButton.playArt ~= nil)
-	readyButton.play:SetDesaturated(not canStart)
-	readyButton.play:SetAlpha(canStart and 1 or 0.45)
-	readyButton.stop:SetShown(C.armed and readyButton.stopArt ~= nil)
-	local missing = C.armed and not readyButton.stopArt or (not C.armed and not readyButton.playArt)
-	readyButton.playText:SetShown(missing and true or false)
-	readyButton.playText:SetText(C.armed and "Stop" or "Start")
-	readyButton.playText:SetAlpha((C.armed or canStart) and 1 or 0.45)
+	PaintReady(readyButton)
 	SetPortrait(ns.SpellIcon(ns.WATER[#ns.WATER]))
 
 	if capturing then
