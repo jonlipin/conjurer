@@ -119,7 +119,7 @@ local DEFAULTS = {
 	handed = {},
 	handedMinutes = 30,
 	macro = { perCharacter = true, auto = false, made = false },
-	alert = { enabled = true, water = 20, food = 10, sound = false, when = "out", lowerRanks = false, always = false, progress = true, progressText = true, frame = true },
+	alert = { enabled = true, water = 20, food = 10, sound = false, when = "out", lowerRanks = false, always = false, progress = true, progressText = true, frame = true, scale = 100 },
 	announce = { shown = false, groupOnly = true },
 	drinkWhenOOM = true,
 	tidy = true,

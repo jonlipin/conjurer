@@ -1383,8 +1383,8 @@ local function BuildAlert(body)
 	-- The frame round it, or just its icons, buttons and progress bar.
 	local framed = NewCheck(body, "Show its border and background",
 		function() return ns.db.alert.frame end,
-		function(v) ns.db.alert.frame = v ns.Alert.PaintBorder() end,
-		"The game's dialog frame round the bar. Off: just its icons, buttons and progress bar.")
+		function(v) ns.db.alert.frame = v ns.Alert.Update(true) end,
+		"A panel like the bag window's round the bar, titled Conjurer. Off: just its icons, buttons and progress bar.")
 	framed:SetPoint("TOPLEFT", body, "TOPLEFT", 34, -y)
 	body.frameCheck = framed
 	y = y + 26
@@ -1403,6 +1403,15 @@ local function BuildAlert(body)
 	words:SetPoint("TOPLEFT", body, "TOPLEFT", 60, -y)
 	body.progressTextCheck = words
 	y = y + 30
+	-- How big it is, a half to twice the size.
+	local sizeLabel = Text(body, "GameFontHighlight")
+	sizeLabel:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 4)
+	sizeLabel:SetText("Size (%)")
+	local sizeSlider = NewSlider(body, 178, 50, 200, 5, function(v) ns.Alert.SetScale(v) end)
+	sizeSlider:SetPoint("TOPLEFT", body, "TOPLEFT", 150, -y)
+	syncers[#syncers + 1] = function() sizeSlider:Set(ns.db.alert.scale or 100) end
+	body.scaleSlider = sizeSlider
+	y = y + ROW_H
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		local label = Text(body, "GameFontHighlight")
 		label:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 4)

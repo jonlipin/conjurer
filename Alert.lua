@@ -1,7 +1,7 @@
 -- Conjurer
 -- Alert: the quick access bar. Icons for your conjured water and food, shown when they run low or
 -- all the time, with the click-to-conjure button, the Ready button, the cog and a progress bar, in
--- the game's dialog frame (or without it).
+-- the bag window's panel (or without it).
 --
 -- One icon per kind that is low, side by side, each dressed as an action bar button with the proc
 -- glow and how many you have left. Beside them, a Ready button like the window's, lit while Ready
@@ -17,11 +17,29 @@ ns.Alert = A
 
 local SIZE = 40
 local GAP = 6
-local CONTROLS = 24
+local CONTROLS = 24 -- the cog's room at the end of the row, when there's no panel to hold it
+-- The options button ShardGrid has in its title bar: the dropdown settings cog, gold in a square.
+local COG = 20
+local COG_ART = {
+	{ "common-dropdown-a-button-settings", "common-dropdown-a-button-settings-hover", "common-dropdown-a-button-settings-pressed" },
+	{ "common-dropdown-a-button-settings-shadowless", "common-dropdown-a-button-settings-hover-shadowless",
+		"common-dropdown-a-button-settings-pressed-shadowless" },
+	{ "gm-icon-settings", "gm-icon-settings-hover", "gm-icon-settings-pressed" },
+}
 local PROGRESS_H, PROGRESS_GAP = 16, 6
--- The dialog frame's rail sits 12 to 21 in from its edge, so the frame reaches this far past the bar.
-local FRAME_PAD = 26
-local holder, controls, playButton, cogButton, conjureButton, announceButton, progress, border
+-- The panel round the bar: the bag window's, as ShardGrid's soul shard and summons windows use. The
+-- bar sits this far inside it, under the title bar. Its metal corners overlap below MIN_W by MIN_H,
+-- so a smaller panel is drawn at that size and shrunk to fit instead, no further than MIN_FIT.
+local PANEL_TEMPLATES = {
+	{ "DefaultPanelFlatTemplate", function(f) return f.NineSlice ~= nil end },
+	{ "DefaultPanelTemplate", function(f) return f.NineSlice ~= nil end },
+	{ "ButtonFrameTemplate", function(f) return f.NineSlice ~= nil or f.Inset ~= nil end },
+}
+local INSET = { left = 10, right = 8, top = 27, bottom = 9 }
+local MIN_W, MIN_H, MIN_FIT = 156, 110, 0.5
+local BASE_LEVEL = 10 -- the panel's level; the bar and its buttons sit well above it
+local holder, playButton, cogButton, conjureButton, announceButton, progress, border, titleFont
+local cogX = 0 -- where the cog goes in the row without the panel
 local icons = {}
 local wasLow = { water = false, food = false }
 A.combat = false
@@ -65,6 +83,12 @@ end
 local function SavePoint()
 	local point, _, relPoint, x, y = holder:GetPoint(1)
 	ns.db.alert.point = { point, relPoint, x, y }
+end
+
+-- The size slider's scale, a half to twice the size.
+local function Scale()
+	local pct = tonumber(ns.db.alert.scale) or 100
+	return math.max(0.5, math.min(2, pct / 100))
 end
 
 local function Place()
@@ -216,32 +240,50 @@ local function Icon(e)
 	return b
 end
 
--- The game's dialog frame round the bar, as on its popups. Its background takes a drag too.
+-- The bag window's panel round the bar, titled Conjurer. Its background takes a drag too.
 local function BuildBorder()
-	local ok, made = pcall(CreateFrame, "Frame", "ConjurerAlertBorder", holder, "DialogBorderTemplate")
-	if ok and made then
-		border = made
-		report["alert frame"] = "dialog border"
-	else
-		ok, made = pcall(CreateFrame, "Frame", "ConjurerAlertBorder", holder, "BackdropTemplate")
+	local used
+	for _, c in ipairs(PANEL_TEMPLATES) do
+		local ok, made = pcall(CreateFrame, "Frame", "ConjurerAlertBorder", holder, c[1])
+		if ok and made and (not c[2] or c[2](made)) then
+			border, used = made, c[1]
+			break
+		end
+		if ok and made then made:Hide() end
+	end
+	if not border then
+		local ok, made = pcall(CreateFrame, "Frame", "ConjurerAlertBorder", holder, "BackdropTemplate")
 		border = (ok and made) or CreateFrame("Frame", "ConjurerAlertBorder", holder)
+		used = "backdrop"
 		if border.SetBackdrop then
 			border:SetBackdrop({
-				bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-				edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-				tile = true, tileSize = 32, edgeSize = 32,
-				insets = { left = 11, right = 12, top = 12, bottom = 11 },
+				bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+				edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+				tile = true, tileSize = 16, edgeSize = 14,
+				insets = { left = 3, right = 3, top = 3, bottom = 3 },
 			})
-			report["alert frame"] = "dialog backdrop"
+			border:SetBackdropColor(0.05, 0.05, 0.05, 0.92)
 		else
 			local bg = border:CreateTexture(nil, "BACKGROUND")
 			bg:SetAllPoints()
-			bg:SetColorTexture(0.05, 0.05, 0.07, 0.85)
-			report["alert frame"] = "plain"
+			bg:SetColorTexture(0.05, 0.05, 0.05, 0.92)
+			used = "plain"
 		end
 	end
-	-- Under the icons and buttons, which are a level up.
-	border:SetFrameLevel(holder:GetFrameLevel())
+	report["alert frame"] = used
+	if used == "ButtonFrameTemplate" then
+		if ButtonFrameTemplate_HidePortrait then pcall(ButtonFrameTemplate_HidePortrait, border) end
+		if ButtonFrameTemplate_HideButtonBar then pcall(ButtonFrameTemplate_HideButtonBar, border) end
+		if border.Inset then border.Inset:Hide() end
+	end
+	if border.CloseButton then border.CloseButton:Hide() end
+	local title = border.TitleText or (border.TitleContainer and border.TitleContainer.TitleText)
+	if title then title:SetText("Conjurer") end
+	border.title = title
+	-- Under the icons and buttons: its metal and background low, the bar well above.
+	border:SetFrameLevel(BASE_LEVEL)
+	if border.NineSlice and border.NineSlice.SetFrameLevel then border.NineSlice:SetFrameLevel(BASE_LEVEL + 1) end
+	if type(border.Bg) == "table" and border.Bg.SetFrameLevel then border.Bg:SetFrameLevel(BASE_LEVEL) end
 	border:EnableMouse(true)
 	Drag(border)
 end
@@ -252,6 +294,9 @@ local function Build()
 	holder = CreateFrame("Frame", "ConjurerAlert", UIParent)
 	holder:SetSize(SIZE, SIZE)
 	holder:SetFrameStrata("MEDIUM")
+	-- Set before its buttons are made, so they all start above the panel round them.
+	holder:SetFrameLevel(BASE_LEVEL + 10)
+	holder:SetScale(Scale())
 	holder:SetMovable(true)
 	holder:SetClampedToScreen(true)
 	Place()
@@ -281,11 +326,12 @@ local function Build()
 	end)
 	playButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	Drag(playButton)
-	controls = CreateFrame("Frame", nil, holder)
-	controls:SetSize(CONTROLS, SIZE)
-	cogButton = ArtButton(controls, 18, "ConjurerAlertSettings", "gm-icon-settings", "gm-icon-settings-pressed",
-		"gm-icon-settings-hover", "...")
-	cogButton:SetPoint("CENTER", controls, "CENTER", 0, 0)
+	-- In the panel's title bar, or at the end of the row without the panel; placed with the panel.
+	local cogArt = COG_ART[#COG_ART]
+	for _, set in ipairs(COG_ART) do
+		if ns.HasAtlas(set[1]) then cogArt = set break end
+	end
+	cogButton = ArtButton(holder, COG, "ConjurerAlertSettings", cogArt[1], cogArt[3], cogArt[2], "...")
 	cogButton:SetScript("OnClick", ns.Guard("alert settings", function() ns.UI.Show() end))
 	cogButton:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -321,20 +367,52 @@ local function PaintPlay()
 	playButton:SetAlpha(usable and 1 or 0.5)
 end
 
--- The frame round everything shown, the progress bar included, or no frame when it's turned off.
+-- The cog sits where ShardGrid's does, in the title bar's right end, sized to the shrunk panel as
+-- its is; without the panel it ends the row.
+local function PlaceCog(on)
+	if not cogButton then return end
+	cogButton:ClearAllPoints()
+	if on then
+		local fit = border.fit or 1
+		local size = math.min(COG, 26 * fit)
+		cogButton:SetSize(size, size)
+		cogButton:SetPoint("TOPRIGHT", border, "TOPRIGHT", -5 * fit, -3 * fit)
+	else
+		cogButton:SetSize(COG, COG)
+		cogButton:SetPoint("LEFT", holder, "LEFT", cogX + (CONTROLS - COG) / 2, 0)
+	end
+end
+
+-- The panel round everything shown, the progress bar included, or no panel when it's turned off.
+-- Too small for its metal corners, it is drawn at their size and shrunk, as ShardGrid's are: its
+-- insets shrink with it, and its title is made bigger to stay readable.
 function A.PaintBorder()
 	if not border then return end
 	local on = ns.db.alert.frame and true or false
 	local withBar = progress and ns.db.alert.progress
+	local below = withBar and (PROGRESS_GAP + PROGRESS_H) or 0
+	local w, h = holder:GetWidth() or SIZE, SIZE + below
+	local fit = math.min(1, w / (MIN_W - INSET.left - INSET.right), h / (MIN_H - INSET.top - INSET.bottom))
+	fit = math.max(MIN_FIT, fit)
 	border:SetShown(on)
+	border:SetScale(fit)
+	-- In the panel's own units, so on screen the insets shrink with it.
 	border:ClearAllPoints()
-	border:SetPoint("TOPLEFT", holder, "TOPLEFT", -FRAME_PAD, FRAME_PAD)
-	border:SetPoint("BOTTOMRIGHT", withBar and progress or holder, "BOTTOMRIGHT", FRAME_PAD, -FRAME_PAD)
-	-- Kept on screen whole: the frame when it shows, the progress bar under the icons always.
+	border:SetPoint("TOPLEFT", holder, "TOPLEFT", -INSET.left, INSET.top)
+	border:SetPoint("BOTTOMRIGHT", withBar and progress or holder, "BOTTOMRIGHT", INSET.right, -INSET.bottom)
+	border.fit = fit
+	PlaceCog(on)
+	local title = border.title
+	if title and title.GetFont and title.SetFont then
+		if not titleFont then titleFont = { title:GetFont() } end
+		if titleFont[1] and titleFont[2] then
+			title:SetFont(titleFont[1], math.min(titleFont[2] / fit, titleFont[2] * 1.5), titleFont[3])
+		end
+	end
+	-- Kept on screen whole: the panel when it shows, the progress bar under the icons always.
 	if holder.SetClampRectInsets then
-		local below = withBar and (PROGRESS_GAP + PROGRESS_H) or 0
-		local pad = on and FRAME_PAD or 0
-		holder:SetClampRectInsets(-pad, pad, pad, -(below + pad))
+		local s = on and fit or 0
+		holder:SetClampRectInsets(-INSET.left * s, INSET.right * s, INSET.top * s, -(below + INSET.bottom * s))
 	end
 end
 
@@ -395,7 +473,6 @@ function A.Update(quiet)
 		if glowing and not b.anim:IsPlaying() then b.anim:Play() elseif not glowing then b.anim:Stop() end
 	end
 	local iconsWidth = #show * SIZE + (#show - 1) * GAP
-	controls:ClearAllPoints()
 	local x = iconsWidth + GAP
 	if conjureButton then
 		conjureButton:ClearAllPoints()
@@ -417,8 +494,9 @@ function A.Update(quiet)
 	playButton:ClearAllPoints()
 	playButton:SetPoint("LEFT", holder, "LEFT", x, 0)
 	x = x + SIZE + GAP
-	controls:SetPoint("LEFT", holder, "LEFT", x, 0)
-	holder:SetWidth(x + CONTROLS)
+	-- The cog takes the panel's title bar, or the end of the row without the panel.
+	cogX = x
+	holder:SetWidth(db.frame and (x - GAP) or (x + CONTROLS))
 	PaintPlay()
 	A.PaintProgress()
 	holder:Show()
@@ -439,6 +517,20 @@ function A.Refresh()
 		end
 		PaintPlay()
 		A.PaintProgress()
+	end
+end
+
+-- The size slider: the bar's scale, keeping its top left corner where it is on screen.
+function A.SetScale(pct)
+	ns.db.alert.scale = pct
+	if not holder then return end
+	local old, s = holder:GetScale(), Scale()
+	local left, top = holder:GetLeft(), holder:GetTop()
+	holder:SetScale(s)
+	if left and top and old then
+		holder:ClearAllPoints()
+		holder:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * old / s, top * old / s)
+		SavePoint()
 	end
 end
 
@@ -491,6 +583,7 @@ ns.debugSources[#ns.debugSources + 1] = function()
 			.. " (below " .. tostring(db.food) .. "), showing " .. tostring(report["alert showing"] or "nothing")
 			.. ", buttons " .. tostring(report["alert buttons"] or "not built")
 			.. ", frame " .. (db.frame and "on" or "off") .. " (" .. tostring(report["alert frame"] or "not built") .. ")"
+			.. ", size " .. tostring(db.scale or 100) .. "%"
 			.. ", progress bar " .. (db.progress and "on" or "off") .. " (" .. tostring(report["progress bar art"] or "not built") .. ")",
 	}
 end

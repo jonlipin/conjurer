@@ -143,7 +143,8 @@ for _, a in ipairs({ "Options_ListExpand_Left", "_Options_ListExpand_Middle", "O
   "classicon-mage", "classicon-priest", "classicon-warrior", "classicon-hunter", "classicon-warlock",
   "charactercreate-customize-playbutton", "charactercreate-customize-stopbutton",
   "gm-icon-settings", "gm-icon-settings-pressed", "gm-icon-settings-hover", "communities-icon-chat",
-  "Profession-ProgressBar-frame", "Profession-ProgressBar-BG", "Skillbar_Fill_Flipbook_Alchemy_c60", "Skillbar_Flare_Alchemy_c60" }) do
+  "Profession-ProgressBar-frame", "Profession-ProgressBar-BG", "Skillbar_Fill_Flipbook_Alchemy_c60", "Skillbar_Flare_Alchemy_c60",
+  "common-dropdown-a-button-settings", "common-dropdown-a-button-settings-hover", "common-dropdown-a-button-settings-pressed" }) do
   KNOWN_ATLASES[a] = true
 end
 -- Where some atlases sit in their files, as the client reports them.
@@ -176,6 +177,9 @@ function CreateFrame(kind, name, parent, template)
   if template == "UIPanelButtonTemplate" then f.fontString = obj("fontstring") end
   if template == "CooldownFrameTemplate" then f.SetCooldown = function(s, start, duration) s.cd = { start, duration } end end
   if template == "InsetFrameTemplate" then f.NineSlice = obj("Frame") f.Bg = obj("texture") end
+  if template == "DefaultPanelFlatTemplate" or template == "DefaultPanelTemplate" then
+    f.NineSlice = obj("Frame") f.Bg = obj("Frame") f.TitleContainer = { TitleText = obj("fontstring") }
+  end
   if template == "PanelTabButtonTemplate" then
     f.Text = obj("fontstring") f.Left = obj("texture") f.Right = obj("texture")
     parent.Tabs = parent.Tabs or {}
@@ -1195,7 +1199,7 @@ if not BARE then
   ns.Profile().food[7] = 10
   fire("BAG_UPDATE_DELAYED") RunTimers(0)
   check("the alert has a click button, between its icons and its Ready button", ConjurerAlertConjure and ConjurerAlertConjure:IsVisible()
-    and ConjurerAlertConjure.parent == ConjurerAlert and ConjurerAlert.w == 40 + 6 + 40 + 6 + 40 + 6 + 24, ConjurerAlert and ConjurerAlert.w)
+    and ConjurerAlertConjure.parent == ConjurerAlert and ConjurerAlert.w == 40 + 6 + 40 + 6 + 40, ConjurerAlert and ConjurerAlert.w)
   check("with every target met, the alert's button conjures what's low", ConjurerAlertConjure.attributes.spell == 10140
     and CB.attributes.type == nil)
   ClickCast(ConjurerAlertConjure)
@@ -2255,23 +2259,50 @@ check("and stays gone as the bags change", not ConjurerAlertProgress.shown)
 Click(AL.progressCheck)
 Click(AL.progressTextCheck)
 check("both back on", ConjurerAlertProgress:IsVisible() and ConjurerAlertProgress.text.shown and ConjurerAlertProgress.text.text == "80 of 80 (100%)")
-check("the bar sits in the game's dialog frame", ConjurerAlertBorder and ConjurerAlertBorder:IsVisible() and AL.frameCheck.checked
-  and (ConjurerAlertBorder.template == "DialogBorderTemplate" or (BARE and ns.report["alert frame"] ~= "dialog border")), ns.report["alert frame"])
-check("round its icons and its progress bar", ConjurerAlertBorder.points[1][2] == ConjurerAlert and ConjurerAlertBorder.points[1][4] == -26
-  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and ConjurerAlertBorder.points[2][5] == -26)
-check("under the icons, which take the clicks, its background taking a drag", ConjurerAlertBorder.level == ConjurerAlert:GetFrameLevel()
+check("the bar sits in the bag window's panel, as ShardGrid's windows do", ConjurerAlertBorder and ConjurerAlertBorder:IsVisible() and AL.frameCheck.checked
+  and (ConjurerAlertBorder.template == "DefaultPanelFlatTemplate" or (BARE and ns.report["alert frame"] ~= "DefaultPanelFlatTemplate")), ns.report["alert frame"])
+check("titled Conjurer", BARE or ConjurerAlertBorder.TitleContainer.TitleText.text == "Conjurer")
+check("round its icons and its progress bar, under the title bar", ConjurerAlertBorder.points[1][2] == ConjurerAlert
+  and ConjurerAlertBorder.points[1][4] == -10 and ConjurerAlertBorder.points[1][5] == 27
+  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and ConjurerAlertBorder.points[2][4] == 8 and ConjurerAlertBorder.points[2][5] == -9)
+check("too short for its metal corners, it's drawn at their size and shrunk", math.abs(ConjurerAlertBorder:GetScale() - 62 / 74) < 1e-9,
+  ConjurerAlertBorder:GetScale())
+check("under the icons, which take the clicks, its background taking a drag", ConjurerAlertBorder.level + 1 < ConjurerAlert:GetFrameLevel()
+  and (BARE or ConjurerAlertBorder.NineSlice.level == ConjurerAlertBorder.level + 1)
   and ConjurerAlertBorder.scripts.OnDragStart ~= nil)
+local fit = 62 / 74
+check("its cog is ShardGrid's, in the title bar's right end", ConjurerAlertSettings.points[1][1] == "TOPRIGHT"
+  and ConjurerAlertSettings.points[1][2] == ConjurerAlertBorder and math.abs(ConjurerAlertSettings.points[1][4] + 5 * fit) < 1e-9
+  and math.abs(ConjurerAlertSettings.points[1][5] + 3 * fit) < 1e-9 and ConjurerAlertSettings.w == 20
+  and (BARE or ConjurerAlertSettings.art.atlas == "common-dropdown-a-button-settings"))
+local rowW = ConjurerAlert.w
+check("so the row ends at the Ready button", rowW == ConjurerAlertPlay.points[1][4] + 40, rowW)
 Click(AL.frameCheck)
 check("the border and background can go, keeping the icons, buttons and bar", not ns.db.alert.frame and not ConjurerAlertBorder.shown
   and ConjurerAlertWater:IsVisible() and ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible() and ConjurerAlertProgress:IsVisible())
+check("the cog then ends the row", ConjurerAlertSettings.points[1][2] == ConjurerAlert and ConjurerAlertSettings.points[1][4] == rowW + 6 + 2
+  and ConjurerAlert.w == rowW + 6 + 24, ConjurerAlert.w)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("and stay gone as the bags change", not ConjurerAlertBorder.shown and ConjurerAlert.shown)
 Click(AL.frameCheck)
 check("and come back", ns.db.alert.frame and ConjurerAlertBorder.shown and AL.frameCheck.checked)
+check("with the cog back in the title bar", ConjurerAlertSettings.points[1][2] == ConjurerAlertBorder and ConjurerAlert.w == rowW)
+check("full size to start", ns.db.alert.scale == 100 and ConjurerAlert:GetScale() == 1 and AL.scaleSlider ~= nil)
+ConjurerAlert.GetLeft = function() return 300 end
+ConjurerAlert.GetTop = function() return 600 end
+AL.scaleSlider.Slider:SetValue(150)
+check("the size slider scales it", ns.db.alert.scale == 150 and ConjurerAlert:GetScale() == 1.5, ConjurerAlert:GetScale())
+local pt = ConjurerAlert.points[1]
+check("keeping its top left corner where it was on screen", pt[1] == "TOPLEFT" and pt[3] == "BOTTOMLEFT"
+  and math.abs(pt[4] - 200) < 1e-9 and math.abs(pt[5] - 400) < 1e-9 and ns.db.alert.point[1] == "TOPLEFT")
+AL.scaleSlider.Slider:SetValue(100)
+ConjurerAlert.GetLeft, ConjurerAlert.GetTop = nil, nil
+check("and back", ConjurerAlert:GetScale() == 1)
 Click(AL.progressCheck)
-check("without the progress bar the frame closes up under the icons", ConjurerAlertBorder.points[2][2] == ConjurerAlert)
+check("without the progress bar the frame closes up under the icons", ConjurerAlertBorder.points[2][2] == ConjurerAlert
+  and math.abs(ConjurerAlertBorder:GetScale() - 40 / 74) < 1e-9)
 Click(AL.progressCheck)
-check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress)
+check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder:GetScale() - 62 / 74) < 1e-9)
 check("the debug report says how the bar is dressed", table.concat(ns.DebugReport(), "\n"):find(", frame on (", 1, true) ~= nil)
 AddItems(8079, 20)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
@@ -2334,11 +2365,11 @@ check("and its tooltip says it's low", GameTooltip.text == "Conjured water is lo
   tostring(GameTooltip.text) .. " / " .. tostring(TIP_LINES[1]))
 check("and the proc glow", ConjurerAlertWater.glow.shown and ConjurerAlertWater.anim.playing)
 local CONJ_W = ConjurerAlertConjure and 46 or 0
-check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + CONJ_W + 46 + 24, ConjurerAlert.w)
+check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + CONJ_W + 40, ConjurerAlert.w)
 check("with a Ready button and a cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
 check("the Ready button is the window's, as big as the icons, play over it", ConjurerAlertPlay.w == 40
   and ((ConjurerAlertPlay.play.shown and ConjurerAlertPlay.play.atlas == "charactercreate-customize-playbutton"
-    and ConjurerAlertSettings.art.atlas == "gm-icon-settings")
+    and ConjurerAlertSettings.art.atlas == "common-dropdown-a-button-settings")
   or (BARE and ConjurerAlertPlay.playText.shown and ConjurerAlertPlay.playText.text == "Start")))
 check("not lit while Ready is off", not ConjurerAlertPlay.glow.shown)
 check("no sound unless asked for", not Played(3175))
@@ -2355,7 +2386,7 @@ check("off again, only the best rank counts", ns.db.alert.lowerRanks == false an
 ClearBags()
 AddItems(8079, 5)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
-check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 6 + CONJ_W + 46 + 24
+check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 6 + CONJ_W + 40
   and ConjurerAlertWater.points[1][4] == 0 and ConjurerAlertFood.points[1][4] == 46)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("hidden in combat", not ConjurerAlert.shown)
@@ -2438,7 +2469,8 @@ end
 UI.Show() RunTimers(0)
 ns.db.alert.point = nil
 ConjurerAlertWater.scripts.OnDragStop(ConjurerAlertWater)
-check("dragging it saves where it is", type(ns.db.alert.point) == "table" and ns.db.alert.point[1] == "CENTER")
+check("dragging it saves where it is", type(ns.db.alert.point) == "table" and ns.db.alert.point[1] == ConjurerAlert.points[1][1]
+  and ns.db.alert.point[3] == ConjurerAlert.points[1][4] and ns.db.alert.point[4] == ConjurerAlert.points[1][5])
 AddItems(8079, 40)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("stocked up again, it goes", not ConjurerAlert.shown)
@@ -2882,7 +2914,7 @@ const bareTemplates = ['ButtonFrameTemplate', 'PortraitFrameTemplate', 'Backdrop
   'UIPanelCloseButton', 'UICheckButtonTemplate', 'ChatConfigCheckButtonTemplate', 'MinimalSliderWithSteppersTemplate',
   'MinimalSliderTemplate', 'UISliderTemplate', 'OptionsSliderTemplate', 'ConjurerScrollFrameTemplate',
   'UIPanelScrollFrameTemplate', 'InsetFrameTemplate', 'SecureHandlerStateTemplate', 'PanelTabButtonTemplate',
-  'InputBoxTemplate', 'CooldownFrameTemplate', 'InsecureActionButtonTemplate', 'DialogBorderTemplate'];
+  'InputBoxTemplate', 'CooldownFrameTemplate', 'InsecureActionButtonTemplate', 'DefaultPanelFlatTemplate', 'DefaultPanelTemplate'];
 const BARE = process.argv.includes('--bare');
 const pre = (BARE ? 'BARE=true\nBAD_ATLAS=true\nBAD_TEMPLATES={' + bareTemplates.map(t => t + '=true').join(',') + '}\n' : '')
   + (process.argv.includes('--verbose') ? 'VERBOSE=true\n' : '');
