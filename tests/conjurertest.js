@@ -2348,25 +2348,16 @@ check("and come back", ns.db.alert.frame and ConjurerAlertBorder.shown and AL.fr
 check("with the cog back in the title bar", ConjurerAlertSettings.points[1][2] == ConjurerAlertBorder and ConjurerAlert.w == rowW)
 local titleText = function() return ConjurerAlertBorder.TitleContainer.TitleText.text end
 if not BARE then
-  local function Stock()
-    return "|T" .. ns.ItemIcon(ns.TopKnown("water")) .. ":0|t " .. ns.Alert.Total("water")
-      .. "   |T" .. ns.ItemIcon(ns.TopKnown("food")) .. ":0|t " .. ns.Alert.Total("food")
-  end
-  check("the title says Conjurer to start", titleText() == "Conjurer" and not AL.titleStockCheck.checked)
-  Click(AL.titleStockCheck)
-  check("or your water and food, each after its icon", ns.db.alert.titleStock and titleText() == Stock()
-    and titleText():find(":0|t 20", 1, true) ~= nil, titleText())
-  AddItems(22895, 5)
+  check("the title says Conjurer to start", titleText() == "Conjurer" and not AL.titleProgressCheck.checked)
+  Click(AL.titleProgressCheck)
+  check("or the progress count, green once it's full", ns.db.alert.titleProgress and titleText() == "|cff80ff8080 of 80 (100%)|r", titleText())
+  RemoveItems(8079, 20)
   fire("BAG_UPDATE_DELAYED") RunTimers(0)
-  check("kept up to date as the bags change", titleText() == Stock() and titleText():find(":0|t 25", 1, true) ~= nil, titleText())
-  ns.db.alert.water = 100
-  fire("BAG_UPDATE_DELAYED") RunTimers(0)
-  check("a low one in orange", titleText():find("|cffff6119" .. ns.Alert.Total("water") .. "|r", 1, true) ~= nil, titleText())
-  ns.db.alert.water = 20
-  check("the debug report says so", table.concat(ns.DebugReport(), "\n"):find("stock in its title", 1, true) ~= nil)
-  Click(AL.titleStockCheck)
-  check("and back to Conjurer", not ns.db.alert.titleStock and titleText() == "Conjurer")
-  RemoveItems(22895, 5)
+  check("kept up to date as the bags change", titleText() == "60 of 80 (75%)" and ConjurerAlertProgress.text.text == "60 of 80 (75%)", titleText())
+  check("the debug report says so", table.concat(ns.DebugReport(), "\n"):find("count in its title", 1, true) ~= nil)
+  Click(AL.titleProgressCheck)
+  check("and back to Conjurer", not ns.db.alert.titleProgress and titleText() == "Conjurer")
+  AddItems(8079, 20)
   fire("BAG_UPDATE_DELAYED") RunTimers(0)
 end
 check("full size to start", ns.db.alert.scale == 100 and ConjurerAlert:GetScale() == 1 and AL.scaleSlider ~= nil)

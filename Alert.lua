@@ -387,20 +387,14 @@ local function PlaceCog(on)
 	end
 end
 
--- The panel's title: Conjurer, or what you have of your water and food, each after its icon, as
--- ShardGrid's title gives its shard count. A count that is low shows in orange.
+-- The panel's title: Conjurer, or how far the conjuring has got, the progress bar's count, as
+-- ShardGrid's title gives its shard count. Green once every target is met.
 function A.Title()
-	if not ns.db.alert.titleStock then return "Conjurer" end
-	local parts = {}
-	for _, kind in ipairs(ns.KIND_ORDER) do
-		local top = ns.TopKnown(kind)
-		if top then
-			local n = tostring(A.Total(kind))
-			if A.Low(kind) then n = "|cffff6119" .. n .. "|r" end
-			parts[#parts + 1] = "|T" .. tostring(ns.ItemIcon(top)) .. ":0|t " .. n
-		end
-	end
-	return #parts > 0 and table.concat(parts, "   ") or "Conjurer"
+	if not ns.db.alert.titleProgress then return "Conjurer" end
+	local done, total = ns.Conjure.Progress()
+	if not total or total <= 0 then return "Nothing to conjure" end
+	local text = done .. " of " .. total .. " (" .. math.floor(done * 100 / total) .. "%)"
+	return done >= total and ("|cff80ff80" .. text .. "|r") or text
 end
 
 -- The panel round everything shown, the progress bar included, or no panel when it's turned off.
@@ -607,7 +601,7 @@ ns.debugSources[#ns.debugSources + 1] = function()
 			.. " (below " .. tostring(db.food) .. "), showing " .. tostring(report["alert showing"] or "nothing")
 			.. ", buttons " .. tostring(report["alert buttons"] or "not built")
 			.. ", frame " .. (db.frame and "on" or "off") .. " (" .. tostring(report["alert frame"] or "not built") .. ")"
-			.. ", size " .. tostring(db.scale or 100) .. "%" .. (db.titleStock and ", stock in its title" or "")
+			.. ", size " .. tostring(db.scale or 100) .. "%" .. (db.titleProgress and ", count in its title" or "")
 			.. ", progress bar " .. (db.progress and "on" or "off") .. " (" .. tostring(report["progress bar art"] or "not built") .. ")",
 	}
 end

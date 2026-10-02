@@ -1416,12 +1416,12 @@ local function BuildAlert(body)
 	framed:SetPoint("TOPLEFT", body, "TOPLEFT", 34, -y)
 	body.frameCheck = framed
 	y = y + 26
-	local stock = NewCheck(body, "With your water and food in its title",
-		function() return ns.db.alert.titleStock end,
-		function(v) ns.db.alert.titleStock = v ns.Alert.PaintBorder() end,
-		"How many you have of each, after its icon, in the title bar instead of Conjurer. A low one shows in orange.")
-	stock:SetPoint("TOPLEFT", body, "TOPLEFT", 60, -y)
-	body.titleStockCheck = stock
+	local count = NewCheck(body, "With the progress count in its title",
+		function() return ns.db.alert.titleProgress end,
+		function(v) ns.db.alert.titleProgress = v ns.Alert.PaintBorder() end,
+		"How far the conjuring has got, \"60 of 80 (75%)\", in the title bar instead of Conjurer. Green once every target is met.")
+	count:SetPoint("TOPLEFT", body, "TOPLEFT", 60, -y)
+	body.titleProgressCheck = count
 	y = y + 26
 	-- The progress bar under it, and the count written on it.
 	local bar = NewCheck(body, "Show the progress bar",
