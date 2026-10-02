@@ -23,7 +23,7 @@ local ROW_H = 28
 local SLIDER_W = 178
 
 local frame, scroll, content
-local readyButton, readyGlow, readyAnim, readyTitle, readyDetail, keyButton, keyHint, capture, clickButton
+local readyButton, readyGlow, readyAnim, readyTitle, readyDetail, keyButton, keyHint, capture, clickButton, progress
 local capturing = false
 local sections = {}
 local rankRows = { water = {}, food = {} }
@@ -40,7 +40,7 @@ local SECTIONS = {
 	{ key = "shares", title = "Shares by class" },
 	{ key = "group", title = "Group" },
 	{ key = "macro", title = "Eat and drink macro" },
-	{ key = "alert", title = "Low food and water alert" },
+	{ key = "alert", title = "Quick access bar" },
 	{ key = "announce", title = "Announce button" },
 	{ key = "options", title = "Options" },
 }
@@ -322,7 +322,7 @@ local function CreateWindow()
 		end
 	end
 	inset:ClearAllPoints()
-	inset:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -88)
+	inset:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -104)
 	inset:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 4)
 	panel.insetFrame = inset
 
@@ -440,6 +440,69 @@ local function MakeGlow(button, size)
 end
 UI.MakeGlow = MakeGlow
 
+-- A progress bar: the game's mana bar art on its casting bar background when the client has
+-- them, else a plain bar, with the count written across it. :SetProgress(done, total, prefix).
+local function NewProgress(parent, name, width, height)
+	local bar = CreateFrame("StatusBar", name, parent)
+	bar:SetSize(width or 100, height or 12)
+	bar:SetMinMaxValues(0, 1)
+	bar:SetValue(0)
+	if ns.HasAtlas("UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana") then
+		bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+		local fill = bar:GetStatusBarTexture()
+		if fill and fill.SetAtlas then fill:SetAtlas("UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana") end
+		bar.art = "mana bar"
+	else
+		bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+		bar:SetStatusBarColor(0.25, 0.55, 1)
+		bar.art = "plain"
+	end
+	local bg = bar:CreateTexture(nil, "BACKGROUND")
+	bg:SetPoint("TOPLEFT", -1, 1)
+	bg:SetPoint("BOTTOMRIGHT", 1, -1)
+	if ns.HasAtlas("ui-castingbar-background") then
+		bg:SetAtlas("ui-castingbar-background")
+	else
+		bg:SetColorTexture(0, 0, 0, 0.65)
+	end
+	bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	bar.text:SetPoint("CENTER", 0, 1)
+	function bar:SetProgress(done, total, prefix)
+		if not total or total <= 0 then
+			self:SetValue(0)
+			self.text:SetText((prefix or "") .. "Nothing to conjure")
+			return
+		end
+		self:SetValue(done / total)
+		self.text:SetText((prefix or "") .. done .. " of " .. total .. " (" .. math.floor(done * 100 / total) .. "%)")
+		if done >= total then self:SetStatusBarColor(0.4, 0.85, 0.4) else self:SetStatusBarColor(1, 1, 1) end
+		if self.art == "plain" and done < total then self:SetStatusBarColor(0.25, 0.55, 1) end
+	end
+	-- With what Ready is working to now; the window adds the profile in front.
+	function bar:Refresh(prefix)
+		local done, total = ns.Conjure.Progress()
+		self:SetProgress(done, total, prefix)
+	end
+	-- Hovering lists every row.
+	bar:EnableMouse(true)
+	bar:SetScript("OnEnter", function(self)
+		local done, total, rows = ns.Conjure.Progress()
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip:SetText("Conjured " .. done .. " of " .. total .. " (" .. ns.PROFILE_BY_KEY[ns.ProfileKey()].label .. ")", 1, 1, 1)
+		for _, r in ipairs(rows) do
+			local full = r.have >= r.target
+			GameTooltip:AddDoubleLine(ns.ShortName(r.entry), r.have .. " of " .. r.target, 1, 0.82, 0,
+				full and 0.4 or 1, full and 0.85 or 1, full and 0.4 or 1)
+		end
+		if #rows == 0 then GameTooltip:AddLine("No targets set.", 0.8, 0.8, 0.8) end
+		GameTooltip:Show()
+	end)
+	bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	report["progress bar art"] = bar.art
+	return bar
+end
+UI.NewProgress = NewProgress
+
 -- Character creation's play and stop buttons, laid over the Ready icon so it reads as a button to
 -- press. Other art from this client's atlas table stands in when those are missing.
 local PLAY_ART = { "charactercreate-customize-playbutton", "common-icon-forwardarrow", "CGuy_Play" }
@@ -509,6 +572,11 @@ local function BuildReadyBar()
 	keyHint:SetText("the key you hold")
 	Tip(keyButton, "The key you hold",
 		"Click, then press the key (or a side mouse button) you want to hold to conjure. Conjurer only uses it while Ready is lit; the rest of the time it does whatever you have it bound to. Escape cancels.")
+
+	-- How far the conjuring has got, right across the window above the list.
+	progress = NewProgress(frame, "ConjurerProgress", 100, 12)
+	progress:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -88)
+	progress:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -88)
 
 	-- Conjuring by click instead: one cast per click, no key and no Ready needed.
 	clickButton = ns.Click and ns.Click.Make("ConjurerClickButton", frame, 40)
@@ -833,7 +901,7 @@ local function BuildGems(body)
 			if ns.Conjure.armed then ns.Conjure.Update() end
 			ns.Alert.Update()
 		end,
-		"Ready conjures any ticked gem you're missing, one of each as the game allows, and the low alert shows it until you have it again.")
+		"Ready conjures any ticked gem you're missing, one of each as the game allows, and the quick access bar shows it until you have it again.")
 	keep:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
 	body.keepCheck = keep
 	y = y + 28
@@ -1135,11 +1203,32 @@ end
 
 local function BuildAlert(body)
 	local y = 4
-	local on = NewCheck(body, "Show an alert icon when your conjured water or food runs low",
+	local on = NewCheck(body, "Show the quick access bar",
 		function() return ns.db.alert.enabled end,
 		function(v) ns.db.alert.enabled = v ns.Alert.Update() end,
-		"One icon per kind that's low, with how many you have left.")
+		"Your water and food with how many you have (a click conjures them), the click-to-conjure button, play and stop for Ready, the cog, and how far the conjuring has got. Drag it anywhere.")
 	on:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
+	y = y + 30
+	-- Always, or only when something runs low: two boxes that work as one choice.
+	local showLabel = Text(body, "GameFontHighlight")
+	showLabel:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 5)
+	showLabel:SetText("Show it")
+	body.show = {}
+	local sx = 110
+	for _, def in ipairs({
+		{ key = "always", label = "Always", value = true, tip = "On screen all the time. The icons glow when you're low." },
+		{ key = "low", label = "Only when low", value = false, tip = "Only when your water or food runs low, or a kept gem is missing." },
+	}) do
+		local cb = NewCheck(body, def.label, function() return (ns.db.alert.always and true or false) == def.value end,
+			function()
+				ns.db.alert.always = def.value
+				ns.Log("quick access bar: " .. (def.value and "always shown" or "shown when low"))
+				ns.Alert.Update()
+			end, def.tip)
+		cb:SetPoint("TOPLEFT", body, "TOPLEFT", sx, -y)
+		body.show[def.key] = cb
+		sx = sx + 30 + math.max(60, #def.label * 7)
+	end
 	y = y + 30
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		local label = Text(body, "GameFontHighlight")
@@ -1162,10 +1251,10 @@ local function BuildAlert(body)
 	lower:SetPoint("TOPLEFT", body, "TOPLEFT", 34, -y)
 	body.lowerRanks = lower
 	y = y + 30
-	-- When it may show: three boxes that work as one choice.
+	-- In combat or out of it: three boxes that work as one choice.
 	local whenLabel = Text(body, "GameFontHighlight")
 	whenLabel:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 5)
-	whenLabel:SetText("Show it")
+	whenLabel:SetText("Combat")
 	local x = 110
 	body.when = {}
 	for _, when in ipairs(ns.Alert.WHEN) do
@@ -1177,7 +1266,7 @@ local function BuildAlert(body)
 		x = x + 30 + math.max(60, #label * 7)
 	end
 	y = y + 30
-	local sound = NewCheck(body, "Play a sound when it appears",
+	local sound = NewCheck(body, "Play a sound when something runs low",
 		function() return ns.db.alert.sound end, function(v) ns.db.alert.sound = v end, nil)
 	sound:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
 	y = y + 30
@@ -1190,7 +1279,7 @@ local function BuildAlert(body)
 	local hint = Text(body, "GameFontDisableSmall")
 	hint:SetPoint("LEFT", alertMove, "RIGHT", 10, 0)
 	hint:SetWidth(360)
-	hint:SetText("Drag it into place. Its play button starts conjuring; the cog opens this window.")
+	hint:SetText("Drag it into place. Its play button starts Ready; the cog opens this window.")
 	y = y + 30
 	body:SetHeight(y + 4)
 end
@@ -1615,6 +1704,7 @@ local function Build()
 		frame = frame, content = content, sections = sections, rankRows = rankRows, shareRows = shareRows,
 		memberRows = memberRows, readyButton = readyButton, readyGlow = readyGlow, readyAnim = readyAnim,
 		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture, clickButton = clickButton,
+		progress = progress,
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
 		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
 		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs, tabStrip = tabStrip,
@@ -1712,6 +1802,7 @@ function UI.Refresh()
 	readyTitle:SetText(title)
 	if C.armed then readyTitle:SetTextColor(0.35, 0.85, 1) else readyTitle:SetTextColor(1, 0.82, 0) end
 	readyDetail:SetText(detail)
+	if progress then progress:Refresh(ns.PROFILE_BY_KEY[ns.ProfileKey()].label .. ": ") end
 	local row = (C.armed and C.placed) or C.CurrentRow() or ns.TopKnown("water") or ns.WATER[#ns.WATER]
 	readyButton.icon:SetTexture(ns.SpellIcon(row))
 	readyButton.icon:SetDesaturated(not ns.isMage)

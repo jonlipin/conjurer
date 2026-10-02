@@ -888,7 +888,7 @@ check("it wears ButtonFrameTemplate", ConjurerFrame.template == "ButtonFrameTemp
 check("titled Conjurer", ConjurerFrame.TitleContainer.TitleText.text == "Conjurer")
 check("the round portrait shows Conjure Water", ConjurerFrame.PortraitContainer.portrait.texture == "spellicon:10140")
 check("Escape closes it", UISpecialFrames[1] == "ConjurerFrame")
-check("the inset is lowered for the Ready bar", ConjurerFrame.Inset.points[1][5] == -88)
+check("the inset is lowered for the Ready bar and the progress bar", ConjurerFrame.Inset.points[1][5] == -104)
 check("it opened with the spellbook's sound", Played(829))
 check("seven sections", #P.content.kids >= 14 and P.sections.macro ~= nil and P.sections.alert ~= nil)
 check("the icon's rounded mask is Blizzard's size, centred, so the icon fills the frame",
@@ -2172,6 +2172,43 @@ RAID, GROUP = false, {}
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
 check("the debug report names the profile", table.concat(ns.DebugReport(), "\n"):find("profile: Solo; follows your group: true; your group now: Solo", 1, true) ~= nil)
 
+-- ---- The quick access bar: always shown, and the progress bars -----------------------
+ClearBags()
+AddItems(8079, 40)
+AddItems(22895, 20)
+ns.Profile().water[7] = 60
+ns.Profile().food[7] = 20
+ns.db.alert.always = false
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+UI.Refresh()
+check("the section is the quick access bar", P.sections.alert.header.Name.text == "Quick access bar", P.sections.alert.header.Name.text)
+check("with plenty of both and Only when low, it stays away", not ConjurerAlert.shown and P.sections.alert.body.show.low.checked
+  and not P.sections.alert.body.show.always.checked)
+Click(P.sections.alert.body.show.always)
+check("set to Always, it's on screen with nothing low", ns.db.alert.always and ConjurerAlert.shown and ConjurerAlertWater:IsVisible()
+  and ConjurerAlertFood:IsVisible() and P.sections.alert.body.show.always.checked and not P.sections.alert.body.show.low.checked)
+check("with its counts, and no glow", tostring(ConjurerAlertWater.count.text) == "40" and not ConjurerAlertWater.glow.shown)
+check("and the play button and cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
+check("a progress bar under it says how far the conjuring has got", ConjurerAlertProgress and ConjurerAlertProgress:IsVisible()
+  and ConjurerAlertProgress.text.text == "60 of 80 (75%)" and ConjurerAlertProgress.value == 0.75, ConjurerAlertProgress and ConjurerAlertProgress.text.text)
+check("as does the one in the window, with the profile", P.progress and P.progress.text.text == "Solo: 60 of 80 (75%)" and P.progress.value == 0.75,
+  P.progress and P.progress.text.text)
+AddItems(8079, 20)
+fire("BAG_UPDATE_DELAYED") RunTimers(0)
+UI.Refresh()
+check("both fill as you conjure", ConjurerAlertProgress.text.text == "80 of 80 (100%)" and P.progress.text.text == "Solo: 80 of 80 (100%)")
+check("the section sums it up", ns.Alert.Summary():find("^always shown, water below 20") ~= nil, ns.Alert.Summary())
+ns.Profile().water[7] = 0
+ns.Profile().food[7] = 0
+UI.Refresh() fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("with no targets it says so", P.progress.text.text == "Solo: Nothing to conjure" and ConjurerAlertProgress.text.text == "Nothing to conjure")
+EnterCombatLockdown() fire("PLAYER_REGEN_DISABLED") RunTimers(0) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("Always still keeps to the combat choice: out of combat only by default", not ConjurerAlert.shown)
+COMBAT = false fire("PLAYER_REGEN_ENABLED") RunTimers(0) fire("BAG_UPDATE_DELAYED") RunTimers(0)
+check("and it's back after the fight", ConjurerAlert.shown)
+Click(P.sections.alert.body.show.low)
+check("back to Only when low, it goes", not ns.db.alert.always and not ConjurerAlert.shown)
+
 -- ---- Odds and ends ------------------------------------------------------
 ns.Profile().water[7] = C_Item.GetItemCount(8079) + 20
 ConjurerMinimapButton.scripts.OnClick(ConjurerMinimapButton, "RightButton")
@@ -2244,7 +2281,7 @@ check("and shows in combat", ConjurerAlert.shown)
 check("where its play button greys out, since conjuring can't start in a fight", ConjurerAlertPlay.alpha == 0.5 and ConjurerAlertPlay.art.desaturated == true)
 fire("PLAYER_REGEN_ENABLED") RunTimers(0)
 Click(P.sections.alert.body.when.always)
-check("set to always, it shows out of combat", ns.db.alert.when == "always" and ConjurerAlert.shown)
+check("set to in and out of combat, it shows out of combat", ns.db.alert.when == "always" and ConjurerAlert.shown)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("and in combat", ConjurerAlert.shown)
 fire("PLAYER_REGEN_ENABLED") RunTimers(0)
@@ -2330,7 +2367,7 @@ RunTimers(0)
 check("the slider sets the water threshold", ns.db.alert.water == 30)
 ns.db.collapsed.alert = true
 UI.Refresh()
-check("closed, the section sums it up", P.sections.alert.header.Summary.text == "water below 30, food below 10, out of combat", P.sections.alert.header.Summary.text)
+check("closed, the section sums it up", P.sections.alert.header.Summary.text == "shown when low, water below 30, food below 10, out of combat", P.sections.alert.header.Summary.text)
 ns.db.collapsed.alert = false
 ns.db.alert.water = 20
 UI.Refresh()
@@ -2773,7 +2810,7 @@ const bareDriver = driver
   .replace(/check\("it wears ButtonFrameTemplate"[^\n]*\n/, 'check("it falls back to a plain window", ConjurerFrame.template ~= "ButtonFrameTemplate" and ns.report["window template"] == "plain")\n')
   .replace(/check\("titled Conjurer"[^\n]*\n/, '')
   .replace(/check\("the round portrait shows Conjure Water"[^\n]*\n/, '')
-  .replace(/check\("the inset is lowered for the Ready bar"[^\n]*\n/, '')
+  .replace(/check\("the inset is lowered for the Ready bar[^"]*"[^\n]*\n/, '')
   .replace(/check\("the headers use Blizzard's list header art"[^\n]*\n/, 'check("the headers fall back to plain bars with a sign", P.sections.water.header.Sign and P.sections.water.header.Sign.text == "-")\n')
   .replace(/check\("Options starts closed"[^\n]*\n/, 'check("Options starts closed", P.sections.options.body.shown == false and P.sections.options.header.Sign.text == "+")\n')
   .replace(/check\("the scroll frame is the MinimalScrollBar one"[^\n]*\n/, 'check("the scroll frame falls back", ns.report["scroll frame"] == "plain, mouse wheel only")\n')

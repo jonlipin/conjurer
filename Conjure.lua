@@ -609,6 +609,21 @@ function C.CurrentRow()
 	return nil
 end
 
+-- How far the conjuring has got, for the progress bars: what you have toward each row's target
+-- (no more than the target), out of all the targets, and each row with its own count.
+function C.Progress()
+	local done, total, rows = 0, 0, {}
+	for _, entry in ipairs(C.Rows()) do
+		if ns.Known(entry.spell) then
+			local target = ns.Target(entry)
+			local have = math.min(ns.Count(entry.item), target)
+			done, total = done + have, total + target
+			rows[#rows + 1] = { entry = entry, have = have, target = target }
+		end
+	end
+	return done, total, rows
+end
+
 -- The first row short of its target that the bags have no room for.
 function C.FullRow()
 	for _, entry in ipairs(C.Rows()) do

@@ -1,5 +1,6 @@
 -- Conjurer
--- Alert: icons that show when your conjured water or food runs low.
+-- Alert: the quick access bar. Icons for your conjured water and food, shown when they run low or
+-- all the time, with the click-to-conjure button, play and stop for Ready, the cog and a progress bar.
 --
 -- One icon per kind that is low, side by side, each dressed as an action bar button with the proc
 -- glow and how many you have left. Beside them, a play button that starts conjuring (stop while
@@ -16,7 +17,7 @@ ns.Alert = A
 local SIZE = 40
 local GAP = 6
 local CONTROLS = 24
-local holder, controls, playButton, cogButton, conjureButton
+local holder, controls, playButton, cogButton, conjureButton, progress
 local icons = {}
 local wasLow = { water = false, food = false }
 A.combat = false
@@ -24,7 +25,7 @@ A.preview = false
 A.sticky = nil -- kinds that stay up while conjuring started from the alert runs
 
 A.WHEN = { "out", "in", "always" }
-A.WHEN_LABEL = { out = "Out of combat", ["in"] = "In combat", always = "Always" }
+A.WHEN_LABEL = { out = "Out of combat", ["in"] = "In combat", always = "In and out of combat" }
 
 -- What you have of a kind that counts for the alert: your best rank and any better one you are high
 -- enough to use, or every rank you can use when lower ranks count too.
@@ -261,6 +262,12 @@ local function Build()
 	Drag(cogButton)
 	report["alert buttons"] = (playButton.up and "play art" or "words") .. ", " .. (cogButton.up and "cog art" or "words")
 
+	-- How far the conjuring has got, right under the icons and buttons.
+	progress = ns.UI.NewProgress(holder, "ConjurerAlertProgress", SIZE, 10)
+	progress:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -5)
+	progress:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", 0, -5)
+	Drag(progress)
+
 	holder:Hide()
 	ns.Stage("idle")
 end
@@ -302,7 +309,9 @@ function A.Update(quiet)
 		end
 		wasLow[e.key] = low
 		local sticky = A.sticky and A.sticky[e.key]
-		if ns.isMage and e.canShow and (A.preview or sticky or (low and A.RightTime())) then
+		-- Kept on screen as a quick bar: water and food whether low or not (a gem only when missing).
+		local always = db.enabled and db.always and not e.gem and A.RightTime()
+		if ns.isMage and e.canShow and (A.preview or sticky or (low and A.RightTime()) or always) then
 			show[#show + 1] = e
 			labels[#labels + 1] = e.label
 		end
@@ -338,8 +347,10 @@ function A.Update(quiet)
 	controls:SetPoint("LEFT", holder, "LEFT", x, 0)
 	holder:SetWidth(x + CONTROLS)
 	PaintPlay()
+	if progress then progress:Refresh() end
 	holder:Show()
 	report["alert showing"] = table.concat(labels, " and ") .. (A.preview and " (moving)" or "") .. (A.sticky and " (conjuring)" or "")
+		.. (db.always and " (kept on screen)" or "")
 end
 
 -- Called with every refresh of the addon: keeps the play button's face and the counts current.
@@ -354,6 +365,7 @@ function A.Refresh()
 			if b:IsShown() then b.count:SetText(b.gem and "" or A.Total(b.kind)) end
 		end
 		PaintPlay()
+		if progress then progress:Refresh() end
 	end
 end
 
@@ -381,7 +393,8 @@ function A.Summary()
 	for r = #ns.GEMS, 1, -1 do
 		if A.GemMissing(ns.GEMS[r]) then low[#low + 1] = ns.GEMS[r].name end
 	end
-	return "water below " .. tostring(db.water) .. ", food below " .. tostring(db.food) .. ", "
+	return (db.always and "always shown" or "shown when low") .. ", water below " .. tostring(db.water)
+		.. ", food below " .. tostring(db.food) .. ", "
 		.. (A.WHEN_LABEL[db.when or "out"] or "Out of combat"):lower()
 		.. (#low > 0 and (", " .. table.concat(low, " and ") .. " low now") or "")
 end
@@ -406,7 +419,8 @@ ns.debugSources[#ns.debugSources + 1] = function()
 	local db = ns.db and ns.db.alert
 	if not db then return {} end
 	return {
-		"low alert: " .. (db.enabled and "on" or "off") .. ", " .. tostring(A.WHEN_LABEL[db.when or "out"]):lower()
+		"quick access bar: " .. (db.enabled and "on" or "off") .. ", " .. (db.always and "always shown" or "shown when low")
+			.. ", " .. tostring(A.WHEN_LABEL[db.when or "out"]):lower()
 			.. ", water " .. A.Total("water") .. " (below " .. tostring(db.water) .. "), food " .. A.Total("food")
 			.. " (below " .. tostring(db.food) .. "), showing " .. tostring(report["alert showing"] or "nothing")
 			.. ", buttons " .. tostring(report["alert buttons"] or "not built"),
