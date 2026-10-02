@@ -322,7 +322,7 @@ local function CreateWindow()
 		end
 	end
 	inset:ClearAllPoints()
-	inset:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -104)
+	inset:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -109)
 	inset:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 4)
 	panel.insetFrame = inset
 
@@ -461,6 +461,7 @@ local SKILL_ART = {
 -- starts 1 further in and stops 7 short of the progress, and the flare rides the mask's edge.
 local SKILL_H = 23
 local SKILL_CAP = 8 -- the round end of the frame and background, kept whole on a long bar
+local SKILL_FLOW = 8 -- seconds for the fill to go round once
 
 -- An atlas laid in three pieces, so a long bar stretches only its middle and keeps its round ends.
 -- One stretched piece when the client doesn't say where the atlas sits in its file.
@@ -501,13 +502,14 @@ local function BuildSkillBar(bar, s)
 	if not (art.frame and art.bg and art.fill and bar.CreateMaskTexture) then return nil end
 	local fill = bar:CreateTexture(nil, "ARTWORK", nil, 2)
 	fill:SetAtlas(art.fill)
-	-- The fill is a flipbook: two columns of frames 34 high, played over two seconds, round and round.
+	-- The fill is a flipbook: two columns of frames 34 high, round and round. The book plays it once
+	-- over two seconds; going round all the time, that's too quick, so it flows at a quarter the speed.
 	local info = C_Texture.GetAtlasInfo(art.fill)
 	local rows = math.floor(((info and info.height) or 1020) / 34)
 	local anim = fill:CreateAnimationGroup()
 	local ok = rows > 0 and pcall(function()
 		local flip = anim:CreateAnimation("FlipBook")
-		flip:SetDuration(2)
+		flip:SetDuration(SKILL_FLOW)
 		flip:SetFlipBookColumns(2)
 		flip:SetFlipBookRows(rows)
 		flip:SetFlipBookFrames(rows * 2)
@@ -567,9 +569,9 @@ local function NewProgress(parent, name, width, height)
 		bar.status, bar.art = status, "plain"
 		top = status
 	end
-	-- Outlined, so it reads on the moving liquid.
-	bar.text = top:CreateFontString(nil, "OVERLAY",
-		_G.GameFontHighlightSmallOutline and "GameFontHighlightSmallOutline" or "GameFontHighlightSmall")
+	-- Outlined, so it reads on the moving liquid; the book's size of letters on a bar the book's height.
+	local font = height >= SKILL_H and "GameFontHighlightOutline" or "GameFontHighlightSmallOutline"
+	bar.text = top:CreateFontString(nil, "OVERLAY", _G[font] and font or "GameFontHighlightSmall")
 	bar.text:SetPoint("CENTER", bar, "CENTER", 0, 0)
 	-- How much shows: the mask cut to the progress, or the plain bar's value.
 	function bar:Paint()
@@ -724,7 +726,7 @@ local function BuildReadyBar()
 		"Click, then press the key (or a side mouse button) you want to hold to conjure. Conjurer only uses it while Ready is lit; the rest of the time it does whatever you have it bound to. Escape cancels.")
 
 	-- How far the conjuring has got, right across the window above the list.
-	progress = NewProgress(frame, "ConjurerProgress", 100, 18)
+	progress = NewProgress(frame, "ConjurerProgress", 100, SKILL_H)
 	progress:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -85)
 	progress:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -85)
 

@@ -104,6 +104,7 @@ M.SetDesaturated = function(s, v) s.desaturated = v end
 M.SetTexCoord = function(s, ...) s.texCoord = { ... } end
 M.SetFlipBookRows = function(s, v) s.rows = v end
 M.SetFlipBookFrames = function(s, v) s.frames = v end
+M.SetDuration = function(s, v) s.duration = v end
 M.SetAlpha = function(s, a) s.alpha = a end
 M.GetAlpha = function(s) return s.alpha or 1 end
 M.SetFontString = function(s, f) s.fontString = f end
@@ -249,6 +250,8 @@ function GetBuildInfo() return "1.60.1", "70009" end
 function debugstack() return "[string \"@Conjurer\\Conjure.lua\"]:1: in function <x>\n" end
 function issecretvalue(v) return SECRETS and SECRETS[v] or false end
 ERR_TRADE_COMPLETE = "Trade complete."
+-- The outlined fonts the client defines.
+GameFontHighlightOutline, GameFontHighlightSmallOutline = {}, {}
 NUM_BAG_SLOTS = 4
 RAID_CLASS_COLORS = { MAGE = { r = 0.25, g = 0.78, b = 0.92 }, PRIEST = { r = 1, g = 1, b = 1 }, WARRIOR = { r = 0.78, g = 0.61, b = 0.43 },
   HUNTER = { r = 0.67, g = 0.83, b = 0.45 }, WARLOCK = { r = 0.53, g = 0.53, b = 0.93 } }
@@ -904,7 +907,7 @@ check("it wears ButtonFrameTemplate", ConjurerFrame.template == "ButtonFrameTemp
 check("titled Conjurer", ConjurerFrame.TitleContainer.TitleText.text == "Conjurer")
 check("the round portrait shows Conjure Water", ConjurerFrame.PortraitContainer.portrait.texture == "spellicon:10140")
 check("Escape closes it", UISpecialFrames[1] == "ConjurerFrame")
-check("the inset is lowered for the Ready bar and the progress bar", ConjurerFrame.Inset.points[1][5] == -104)
+check("the inset is lowered for the Ready bar and the progress bar", ConjurerFrame.Inset.points[1][5] == -109)
 check("it opened with the spellbook's sound", Played(829))
 check("seven sections", #P.content.kids >= 14 and P.sections.macro ~= nil and P.sections.alert ~= nil)
 check("the icon's rounded mask is Blizzard's size, centred, so the icon fills the frame",
@@ -1199,7 +1202,7 @@ if not BARE then
   ns.Profile().food[7] = 10
   fire("BAG_UPDATE_DELAYED") RunTimers(0)
   check("the alert has a click button, between its icons and its Ready button", ConjurerAlertConjure and ConjurerAlertConjure:IsVisible()
-    and ConjurerAlertConjure.parent == ConjurerAlert and ConjurerAlert.w == 40 + 6 + 40 + 6 + 40, ConjurerAlert and ConjurerAlert.w)
+    and ConjurerAlertConjure.parent == ConjurerAlert and ConjurerAlert.w == 40 + 2 + 40 + 2 + 40, ConjurerAlert and ConjurerAlert.w)
   check("with every target met, the alert's button conjures what's low", ConjurerAlertConjure.attributes.spell == 10140
     and CB.attributes.type == nil)
   ClickCast(ConjurerAlertConjure)
@@ -2222,9 +2225,12 @@ else
   local flip = AP.anim.anims[1]
   check("the fill flows, a flipbook going round", AP.anim.playing and AP.anim.looping == "REPEAT" and flip.animKind == "FlipBook"
     and flip.rows == 30 and flip.frames == 60)
-  check("cut by its mask to the progress, as the book cuts it", math.abs(AP.mask.w - (40 * 0.75 - 7 * 16 / 23)) < 0.001
-    and AP.fill.mask == AP.mask and math.abs(P.progress.mask.w - (100 * 0.75 - 7 * 18 / 23)) < 0.001, AP.mask.w)
+  check("slowly: once round every eight seconds", flip.duration == 8)
+  check("cut by its mask to the progress, as the book cuts it", math.abs(AP.mask.w - (40 * 0.75 - 7)) < 0.001
+    and AP.fill.mask == AP.mask and math.abs(P.progress.mask.w - (100 * 0.75 - 7)) < 0.001, AP.mask.w)
   check("with the flare riding its edge while it fills", AP.flare.shown and AP.flare.mask == AP.mask and AP.flare.atlas == "Skillbar_Flare_Alchemy_c60")
+  check("as tall as the book's, its letters the book's size", AP.h == 23 and P.progress.h == 23
+    and AP.text.font == "GameFontHighlightOutline" and P.progress.text.font == "GameFontHighlightOutline")
   check("its frame and background keep their round ends on a long bar", AP.art:find("frame in three pieces", 1, true) ~= nil)
   local pieces, leftEnds = 0, 0
   for _, tex in ipairs(TEXTURES) do
@@ -2263,14 +2269,15 @@ check("the bar sits in the bag window's panel, as ShardGrid's windows do", Conju
   and (ConjurerAlertBorder.template == "DefaultPanelFlatTemplate" or (BARE and ns.report["alert frame"] ~= "DefaultPanelFlatTemplate")), ns.report["alert frame"])
 check("titled Conjurer", BARE or ConjurerAlertBorder.TitleContainer.TitleText.text == "Conjurer")
 check("round its icons and its progress bar, under the title bar", ConjurerAlertBorder.points[1][2] == ConjurerAlert
-  and ConjurerAlertBorder.points[1][4] == -10 and ConjurerAlertBorder.points[1][5] == 27
-  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and ConjurerAlertBorder.points[2][4] == 8 and ConjurerAlertBorder.points[2][5] == -9)
-check("too short for its metal corners, it's drawn at their size and shrunk", math.abs(ConjurerAlertBorder:GetScale() - 62 / 74) < 1e-9,
+  and math.abs(ConjurerAlertBorder.points[1][4] - (-10 - 6 * 74 / 69)) < 1e-9 and ConjurerAlertBorder.points[1][5] == 27
+  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder.points[2][4] - (8 + 6 * 74 / 69)) < 1e-9
+  and ConjurerAlertBorder.points[2][5] == -9)
+check("too short for its metal corners, it's drawn at their size and shrunk", math.abs(ConjurerAlertBorder:GetScale() - 69 / 74) < 1e-9,
   ConjurerAlertBorder:GetScale())
 check("under the icons, which take the clicks, its background taking a drag", ConjurerAlertBorder.level + 1 < ConjurerAlert:GetFrameLevel()
   and (BARE or ConjurerAlertBorder.NineSlice.level == ConjurerAlertBorder.level + 1)
   and ConjurerAlertBorder.scripts.OnDragStart ~= nil)
-local fit = 62 / 74
+local fit = 69 / 74
 check("its cog is ShardGrid's, in the title bar's right end", ConjurerAlertSettings.points[1][1] == "TOPRIGHT"
   and ConjurerAlertSettings.points[1][2] == ConjurerAlertBorder and math.abs(ConjurerAlertSettings.points[1][4] + 5 * fit) < 1e-9
   and math.abs(ConjurerAlertSettings.points[1][5] + 3 * fit) < 1e-9 and ConjurerAlertSettings.w == 20
@@ -2280,8 +2287,8 @@ check("so the row ends at the Ready button", rowW == ConjurerAlertPlay.points[1]
 Click(AL.frameCheck)
 check("the border and background can go, keeping the icons, buttons and bar", not ns.db.alert.frame and not ConjurerAlertBorder.shown
   and ConjurerAlertWater:IsVisible() and ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible() and ConjurerAlertProgress:IsVisible())
-check("the cog then ends the row", ConjurerAlertSettings.points[1][2] == ConjurerAlert and ConjurerAlertSettings.points[1][4] == rowW + 6 + 2
-  and ConjurerAlert.w == rowW + 6 + 24, ConjurerAlert.w)
+check("the cog then ends the row", ConjurerAlertSettings.points[1][2] == ConjurerAlert and ConjurerAlertSettings.points[1][4] == rowW + 2 + 2
+  and ConjurerAlert.w == rowW + 2 + 24, ConjurerAlert.w)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("and stay gone as the bags change", not ConjurerAlertBorder.shown and ConjurerAlert.shown)
 Click(AL.frameCheck)
@@ -2302,7 +2309,7 @@ Click(AL.progressCheck)
 check("without the progress bar the frame closes up under the icons", ConjurerAlertBorder.points[2][2] == ConjurerAlert
   and math.abs(ConjurerAlertBorder:GetScale() - 40 / 74) < 1e-9)
 Click(AL.progressCheck)
-check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder:GetScale() - 62 / 74) < 1e-9)
+check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder:GetScale() - 69 / 74) < 1e-9)
 check("the debug report says how the bar is dressed", table.concat(ns.DebugReport(), "\n"):find(", frame on (", 1, true) ~= nil)
 AddItems(8079, 20)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
@@ -2364,8 +2371,8 @@ ConjurerAlertWater.scripts.OnEnter(ConjurerAlertWater)
 check("and its tooltip says it's low", GameTooltip.text == "Conjured water is low" and (TIP_LINES[1] or ""):find("^Only 5 .- left%.$") ~= nil,
   tostring(GameTooltip.text) .. " / " .. tostring(TIP_LINES[1]))
 check("and the proc glow", ConjurerAlertWater.glow.shown and ConjurerAlertWater.anim.playing)
-local CONJ_W = ConjurerAlertConjure and 46 or 0
-check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + CONJ_W + 40, ConjurerAlert.w)
+local CONJ_W = ConjurerAlertConjure and 42 or 0
+check("the alert is one icon wide, plus its buttons, 2 apart like the action bars", ConjurerAlert.w == 40 + 2 + CONJ_W + 40, ConjurerAlert.w)
 check("with a Ready button and a cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
 check("the Ready button is the window's, as big as the icons, play over it", ConjurerAlertPlay.w == 40
   and ((ConjurerAlertPlay.play.shown and ConjurerAlertPlay.play.atlas == "charactercreate-customize-playbutton"
@@ -2386,8 +2393,8 @@ check("off again, only the best rank counts", ns.db.alert.lowerRanks == false an
 ClearBags()
 AddItems(8079, 5)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
-check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 86 + 6 + CONJ_W + 40
-  and ConjurerAlertWater.points[1][4] == 0 and ConjurerAlertFood.points[1][4] == 46)
+check("both low, both show, water first", ConjurerAlertWater.shown and ConjurerAlertFood.shown and ConjurerAlert.w == 82 + 2 + CONJ_W + 40
+  and ConjurerAlertWater.points[1][4] == 0 and ConjurerAlertFood.points[1][4] == 42)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("hidden in combat", not ConjurerAlert.shown)
 fire("PLAYER_REGEN_ENABLED") RunTimers(0)
@@ -2503,7 +2510,7 @@ GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PR
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
 check("in a party it shows, on the quick access bar", AnnounceUp() and ConjurerAnnounce.parent == ConjurerAlert)
 check("after the click-to-conjure button, and the bar grows to fit it", BARE or (ConjurerAnnounce.points[1][2] == ConjurerAlert
-  and ConjurerAnnounce.points[1][4] == ConjurerAlertConjure.points[1][4] + 46 and ConjurerAlert.w == barWidth + 46), ConjurerAlert.w .. " " .. barWidth)
+  and ConjurerAnnounce.points[1][4] == ConjurerAlertConjure.points[1][4] + 42 and ConjurerAlert.w == barWidth + 42), ConjurerAlert.w .. " " .. barWidth)
 check("with a chat bubble on your best water", ConjurerAnnounce.icon.texture == "itemicon:8079"
   and (ConjurerAnnounce.badge.atlas == "communities-icon-chat" or (BARE and not ConjurerAnnounce.badge.shown)))
 ClearBags()

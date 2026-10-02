@@ -16,7 +16,7 @@ local A = {}
 ns.Alert = A
 
 local SIZE = 40
-local GAP = 6
+local GAP = 2 -- the action bars' spacing
 local CONTROLS = 24 -- the cog's room at the end of the row, when there's no panel to hold it
 -- The options button ShardGrid has in its title bar: the dropdown settings cog, gold in a square.
 local COG = 20
@@ -26,7 +26,7 @@ local COG_ART = {
 		"common-dropdown-a-button-settings-pressed-shadowless" },
 	{ "gm-icon-settings", "gm-icon-settings-hover", "gm-icon-settings-pressed" },
 }
-local PROGRESS_H, PROGRESS_GAP = 16, 6
+local PROGRESS_H, PROGRESS_GAP = 23, 6 -- the professions book's bar, at its own height
 -- The panel round the bar: the bag window's, as ShardGrid's soul shard and summons windows use. The
 -- bar sits this far inside it, under the title bar. Its metal corners overlap below MIN_W by MIN_H,
 -- so a smaller panel is drawn at that size and shrunk to fit instead, no further than MIN_FIT.
@@ -36,6 +36,7 @@ local PANEL_TEMPLATES = {
 	{ "ButtonFrameTemplate", function(f) return f.NineSlice ~= nil or f.Inset ~= nil end },
 }
 local INSET = { left = 10, right = 8, top = 27, bottom = 9 }
+local SIDE = 6 -- more room at the sides, on screen, out of what the narrow gaps save
 local MIN_W, MIN_H, MIN_FIT = 156, 110, 0.5
 local BASE_LEVEL = 10 -- the panel's level; the bar and its buttons sit well above it
 local holder, playButton, cogButton, conjureButton, announceButton, progress, border, titleFont
@@ -391,15 +392,15 @@ function A.PaintBorder()
 	local on = ns.db.alert.frame and true or false
 	local withBar = progress and ns.db.alert.progress
 	local below = withBar and (PROGRESS_GAP + PROGRESS_H) or 0
-	local w, h = holder:GetWidth() or SIZE, SIZE + below
+	local w, h = (holder:GetWidth() or SIZE) + 2 * SIDE, SIZE + below
 	local fit = math.min(1, w / (MIN_W - INSET.left - INSET.right), h / (MIN_H - INSET.top - INSET.bottom))
 	fit = math.max(MIN_FIT, fit)
 	border:SetShown(on)
 	border:SetScale(fit)
 	-- In the panel's own units, so on screen the insets shrink with it.
 	border:ClearAllPoints()
-	border:SetPoint("TOPLEFT", holder, "TOPLEFT", -INSET.left, INSET.top)
-	border:SetPoint("BOTTOMRIGHT", withBar and progress or holder, "BOTTOMRIGHT", INSET.right, -INSET.bottom)
+	border:SetPoint("TOPLEFT", holder, "TOPLEFT", -INSET.left - SIDE / fit, INSET.top)
+	border:SetPoint("BOTTOMRIGHT", withBar and progress or holder, "BOTTOMRIGHT", INSET.right + SIDE / fit, -INSET.bottom)
 	border.fit = fit
 	PlaceCog(on)
 	local title = border.title
@@ -412,7 +413,8 @@ function A.PaintBorder()
 	-- Kept on screen whole: the panel when it shows, the progress bar under the icons always.
 	if holder.SetClampRectInsets then
 		local s = on and fit or 0
-		holder:SetClampRectInsets(-INSET.left * s, INSET.right * s, INSET.top * s, -(below + INSET.bottom * s))
+		local side = on and SIDE or 0
+		holder:SetClampRectInsets(-INSET.left * s - side, INSET.right * s + side, INSET.top * s, -(below + INSET.bottom * s))
 	end
 end
 
