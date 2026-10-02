@@ -172,6 +172,7 @@ the Conjurer window above the list; hover either one for every row's count.
 - It counts your best rank, the one you conjure (and any better one another mage gave you), so a
   pile of a lower rank doesn't hide that you're out; tick **Count lower ranks too** to count every
   rank you're high enough to use.
+- **Show the progress bar** under it, **With its count written on it** or without.
 - **Combat**: out of combat (the default), in combat, or in and out of combat.
 - Click an icon to conjure what it shows (one cast, out of combat), right-click it to start or stop
   Ready. Started from the bar, it stays up until conjuring stops, so stop stays in reach.

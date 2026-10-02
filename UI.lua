@@ -1230,6 +1230,21 @@ local function BuildAlert(body)
 		sx = sx + 30 + math.max(60, #def.label * 7)
 	end
 	y = y + 30
+	-- The progress bar under it, and the count written on it.
+	local bar = NewCheck(body, "Show the progress bar",
+		function() return ns.db.alert.progress end,
+		function(v) ns.db.alert.progress = v ns.Alert.PaintProgress() end,
+		"How far the conjuring has got, under the bar's icons.")
+	bar:SetPoint("TOPLEFT", body, "TOPLEFT", 34, -y)
+	body.progressCheck = bar
+	y = y + 26
+	local words = NewCheck(body, "With its count written on it",
+		function() return ns.db.alert.progressText end,
+		function(v) ns.db.alert.progressText = v ns.Alert.PaintProgress() end,
+		"\"60 of 80 (75%)\" across the bar. Off: just the bar.")
+	words:SetPoint("TOPLEFT", body, "TOPLEFT", 60, -y)
+	body.progressTextCheck = words
+	y = y + 30
 	for _, kind in ipairs(ns.KIND_ORDER) do
 		local label = Text(body, "GameFontHighlight")
 		label:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 4)

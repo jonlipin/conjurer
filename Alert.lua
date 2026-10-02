@@ -291,6 +291,15 @@ local function PaintPlay()
 	playButton:SetAlpha(usable and 1 or 0.5)
 end
 
+-- The progress bar under the icons, and the count written on it, each shown as the options say.
+function A.PaintProgress()
+	if not progress then return end
+	local db = ns.db.alert
+	progress:SetShown(db.progress and true or false)
+	progress.text:SetShown(db.progressText and true or false)
+	if db.progress then progress:Refresh() end
+end
+
 -- Shows the icons for whatever is low right now. quiet: take the state without a sound (login).
 function A.Update(quiet)
 	if not ns.db then return end
@@ -360,7 +369,7 @@ function A.Update(quiet)
 	controls:SetPoint("LEFT", holder, "LEFT", x, 0)
 	holder:SetWidth(x + CONTROLS)
 	PaintPlay()
-	if progress then progress:Refresh() end
+	A.PaintProgress()
 	holder:Show()
 	report["alert showing"] = table.concat(labels, " and ") .. (A.sticky and " (conjuring)" or "")
 		.. (db.always and " (kept on screen)" or "")
@@ -378,7 +387,7 @@ function A.Refresh()
 			if b:IsShown() then b.count:SetText(b.gem and "" or A.Total(b.kind)) end
 		end
 		PaintPlay()
-		if progress then progress:Refresh() end
+		A.PaintProgress()
 	end
 end
 
