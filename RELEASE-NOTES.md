@@ -4,4 +4,3 @@
 - A progress bar shows how far the conjuring has got, what you have toward every target out of all of them: under the quick access bar and across the Conjurer window. Hover it for every row.
 - The announce button lives on the quick access bar; Show the announce button puts it there. The Show it to move it buttons are gone: drag the bar by any of its icons.
 - The eat and drink macro drinks first, so its button shows your water.
-- Fixed: running out of mana on any other spell, with Ready off, made Conjurer think you wanted a drink, so drinking afterwards showed its "Drinking" message. Only a conjure's "Not enough mana" counts now: while Ready is lit, or just after a click on one of Conjurer's conjure buttons or icons.
