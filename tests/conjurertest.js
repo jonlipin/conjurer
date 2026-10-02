@@ -105,6 +105,7 @@ M.SetTexCoord = function(s, ...) s.texCoord = { ... } end
 M.SetFlipBookRows = function(s, v) s.rows = v end
 M.SetFlipBookFrames = function(s, v) s.frames = v end
 M.SetDuration = function(s, v) s.duration = v end
+M.SetToFinalAlpha = function(s, v) s.toFinal = v end
 M.SetAlpha = function(s, a) s.alpha = a end
 M.GetAlpha = function(s) return s.alpha or 1 end
 M.SetFontString = function(s, f) s.fontString = f end
@@ -2223,9 +2224,17 @@ else
   check("the progress bars are the professions book's skill bar, with alchemy's liquid", AP.art:find("skill bar (Skillbar_Fill_Flipbook_Alchemy_c60", 1, true) == 1
     and AP.fill.atlas == "Skillbar_Fill_Flipbook_Alchemy_c60" and P.progress.fill.atlas == "Skillbar_Fill_Flipbook_Alchemy_c60", AP.art)
   local flip = AP.anim.anims[1]
-  check("the fill flows, a flipbook going round", AP.anim.playing and AP.anim.looping == "REPEAT" and flip.animKind == "FlipBook"
-    and flip.rows == 30 and flip.frames == 60)
-  check("slowly: once round every eight seconds", flip.duration == 8)
+  check("the fill flows once, a flipbook at the book's rate, then rests on its last frame", AP.anim.playing and AP.anim.looping == "NONE"
+    and AP.anim.toFinal == true and flip.animKind == "FlipBook" and flip.rows == 30 and flip.frames == 60 and flip.duration == 2)
+  AP.anim.playing = false
+  AP:Refresh()
+  check("a refresh that changes nothing leaves it resting", not AP.anim.playing)
+  AP:SetProgress(61, 80)
+  check("it flows again when the bar moves", AP.anim.playing)
+  AP:Refresh()
+  AP.anim.playing = false
+  AP:Hide() AP:Show()
+  check("and when it comes into view", AP.anim.playing)
   check("cut by its mask to the progress, as the book cuts it", math.abs(AP.mask.w - (40 * 0.75 - 7)) < 0.001
     and AP.fill.mask == AP.mask and math.abs(P.progress.mask.w - (100 * 0.75 - 7)) < 0.001, AP.mask.w)
   check("with the flare riding its edge while it fills", AP.flare.shown and AP.flare.mask == AP.mask and AP.flare.atlas == "Skillbar_Flare_Alchemy_c60")
@@ -2269,15 +2278,15 @@ check("the bar sits in the bag window's panel, as ShardGrid's windows do", Conju
   and (ConjurerAlertBorder.template == "DefaultPanelFlatTemplate" or (BARE and ns.report["alert frame"] ~= "DefaultPanelFlatTemplate")), ns.report["alert frame"])
 check("titled Conjurer", BARE or ConjurerAlertBorder.TitleContainer.TitleText.text == "Conjurer")
 check("round its icons and its progress bar, under the title bar", ConjurerAlertBorder.points[1][2] == ConjurerAlert
-  and math.abs(ConjurerAlertBorder.points[1][4] - (-10 - 6 * 74 / 69)) < 1e-9 and ConjurerAlertBorder.points[1][5] == 27
-  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder.points[2][4] - (8 + 6 * 74 / 69)) < 1e-9
+  and math.abs(ConjurerAlertBorder.points[1][4] - (-10 - 6 * 74 / 67)) < 1e-9 and ConjurerAlertBorder.points[1][5] == 27
+  and ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder.points[2][4] - (8 + 4 * 74 / 67)) < 1e-9
   and ConjurerAlertBorder.points[2][5] == -9)
-check("too short for its metal corners, it's drawn at their size and shrunk", math.abs(ConjurerAlertBorder:GetScale() - 69 / 74) < 1e-9,
+check("too short for its metal corners, it's drawn at their size and shrunk", math.abs(ConjurerAlertBorder:GetScale() - 67 / 74) < 1e-9,
   ConjurerAlertBorder:GetScale())
 check("under the icons, which take the clicks, its background taking a drag", ConjurerAlertBorder.level + 1 < ConjurerAlert:GetFrameLevel()
   and (BARE or ConjurerAlertBorder.NineSlice.level == ConjurerAlertBorder.level + 1)
   and ConjurerAlertBorder.scripts.OnDragStart ~= nil)
-local fit = 69 / 74
+local fit = 67 / 74
 check("its cog is ShardGrid's, in the title bar's right end", ConjurerAlertSettings.points[1][1] == "TOPRIGHT"
   and ConjurerAlertSettings.points[1][2] == ConjurerAlertBorder and math.abs(ConjurerAlertSettings.points[1][4] + 5 * fit) < 1e-9
   and math.abs(ConjurerAlertSettings.points[1][5] + 3 * fit) < 1e-9 and ConjurerAlertSettings.w == 20
@@ -2294,6 +2303,29 @@ check("and stay gone as the bags change", not ConjurerAlertBorder.shown and Conj
 Click(AL.frameCheck)
 check("and come back", ns.db.alert.frame and ConjurerAlertBorder.shown and AL.frameCheck.checked)
 check("with the cog back in the title bar", ConjurerAlertSettings.points[1][2] == ConjurerAlertBorder and ConjurerAlert.w == rowW)
+local titleText = function() return ConjurerAlertBorder.TitleContainer.TitleText.text end
+if not BARE then
+  local function Stock()
+    return "|T" .. ns.ItemIcon(ns.TopKnown("water")) .. ":0|t " .. ns.Alert.Total("water")
+      .. "   |T" .. ns.ItemIcon(ns.TopKnown("food")) .. ":0|t " .. ns.Alert.Total("food")
+  end
+  check("the title says Conjurer to start", titleText() == "Conjurer" and not AL.titleStockCheck.checked)
+  Click(AL.titleStockCheck)
+  check("or your water and food, each after its icon", ns.db.alert.titleStock and titleText() == Stock()
+    and titleText():find(":0|t 20", 1, true) ~= nil, titleText())
+  AddItems(22895, 5)
+  fire("BAG_UPDATE_DELAYED") RunTimers(0)
+  check("kept up to date as the bags change", titleText() == Stock() and titleText():find(":0|t 25", 1, true) ~= nil, titleText())
+  ns.db.alert.water = 100
+  fire("BAG_UPDATE_DELAYED") RunTimers(0)
+  check("a low one in orange", titleText():find("|cffff6119" .. ns.Alert.Total("water") .. "|r", 1, true) ~= nil, titleText())
+  ns.db.alert.water = 20
+  check("the debug report says so", table.concat(ns.DebugReport(), "\n"):find("stock in its title", 1, true) ~= nil)
+  Click(AL.titleStockCheck)
+  check("and back to Conjurer", not ns.db.alert.titleStock and titleText() == "Conjurer")
+  RemoveItems(22895, 5)
+  fire("BAG_UPDATE_DELAYED") RunTimers(0)
+end
 check("full size to start", ns.db.alert.scale == 100 and ConjurerAlert:GetScale() == 1 and AL.scaleSlider ~= nil)
 ConjurerAlert.GetLeft = function() return 300 end
 ConjurerAlert.GetTop = function() return 600 end
@@ -2306,10 +2338,13 @@ AL.scaleSlider.Slider:SetValue(100)
 ConjurerAlert.GetLeft, ConjurerAlert.GetTop = nil, nil
 check("and back", ConjurerAlert:GetScale() == 1)
 Click(AL.progressCheck)
+check("the progress bar reaches 2 past the row, its frame in line with the icons' edges", ConjurerAlertProgress.points[1][4] == -2
+  and ConjurerAlertProgress.points[2][4] == 2)
 check("without the progress bar the frame closes up under the icons", ConjurerAlertBorder.points[2][2] == ConjurerAlert
+  and math.abs(ConjurerAlertBorder.points[2][4] - (8 + 6 * 74 / 40)) < 1e-9
   and math.abs(ConjurerAlertBorder:GetScale() - 40 / 74) < 1e-9)
 Click(AL.progressCheck)
-check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder:GetScale() - 69 / 74) < 1e-9)
+check("and opens again for it", ConjurerAlertBorder.points[2][2] == ConjurerAlertProgress and math.abs(ConjurerAlertBorder:GetScale() - 67 / 74) < 1e-9)
 check("the debug report says how the bar is dressed", table.concat(ns.DebugReport(), "\n"):find(", frame on (", 1, true) ~= nil)
 AddItems(8079, 20)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)

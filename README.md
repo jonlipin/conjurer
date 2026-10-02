@@ -175,7 +175,8 @@ for every row's count.
   pile of a lower rank doesn't hide that you're out; tick **Count lower ranks too** to count every
   rank you're high enough to use.
 - **Show its border and background**, or just the icons, buttons and progress bar (the cog then
-  ends the row).
+  ends the row). **With your water and food in its title** puts how many you have of each, after
+  its icon, in the title bar instead of Conjurer.
 - **Size**: from half to twice as big.
 - **Show the progress bar** under it, **With its count written on it** or without.
 - **Combat**: out of combat (the default), in combat, or in and out of combat.

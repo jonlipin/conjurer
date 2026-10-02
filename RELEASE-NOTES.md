@@ -1,7 +1,7 @@
 ## 1.3.0 - 2026-10-02
 
 - The low food and water alert is now the quick access bar. Show it Always, as a quick bar, or Only when low: your water and food with how many you have, the click-to-conjure button, the announce button, a Ready button like the window's (it glows while Ready is lit, however you started it), and the cog that opens Conjurer. Everything else it had is kept; the combat choice now reads out of combat, in combat, or in and out of combat.
-- The quick access bar sits in a panel like the bag window's, titled Conjurer, with the cog in its title bar. Show its border and background can take the panel away, leaving the icons, buttons and progress bar. A Size slider makes it from half to twice as big. Drag it by the panel or any icon.
+- The quick access bar sits in a panel like the bag window's, titled Conjurer, with the cog in its title bar. The title can show how many water and food you have instead (With your water and food in its title). Show its border and background can take the panel away, leaving the icons, buttons and progress bar. A Size slider makes it from half to twice as big. Drag it by the panel or any icon.
 - A progress bar shows how far the conjuring has got, what you have toward every target out of all of them: under the quick access bar and across the Conjurer window. It's the professions book's skill bar, with alchemy's flowing blue-green fill. Hover it for every row. On the quick access bar it can be hidden, or shown without its count.
 - The announce button lives on the quick access bar; Show the announce button puts it there. The Show it to move it buttons are gone: drag the bar by any of its icons.
 - The eat and drink macro drinks first, so its button shows your water.

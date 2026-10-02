@@ -461,7 +461,7 @@ local SKILL_ART = {
 -- starts 1 further in and stops 7 short of the progress, and the flare rides the mask's edge.
 local SKILL_H = 23
 local SKILL_CAP = 8 -- the round end of the frame and background, kept whole on a long bar
-local SKILL_FLOW = 8 -- seconds for the fill to go round once
+local SKILL_FLOW = 2 -- the book's seconds for the fill to flow once
 
 -- An atlas laid in three pieces, so a long bar stretches only its middle and keeps its round ends.
 -- One stretched piece when the client doesn't say where the atlas sits in its file.
@@ -502,8 +502,9 @@ local function BuildSkillBar(bar, s)
 	if not (art.frame and art.bg and art.fill and bar.CreateMaskTexture) then return nil end
 	local fill = bar:CreateTexture(nil, "ARTWORK", nil, 2)
 	fill:SetAtlas(art.fill)
-	-- The fill is a flipbook: two columns of frames 34 high, round and round. The book plays it once
-	-- over two seconds; going round all the time, that's too quick, so it flows at a quarter the speed.
+	-- The fill is a flipbook: two columns of frames 34 high. As in the book, it flows once at its own
+	-- rate whenever the bar moves, then rests on its last frame. Going round all the time is too
+	-- busy, and slowed down it stutters: the sheet has only so many frames.
 	local info = C_Texture.GetAtlasInfo(art.fill)
 	local rows = math.floor(((info and info.height) or 1020) / 34)
 	local anim = fill:CreateAnimationGroup()
@@ -521,7 +522,8 @@ local function BuildSkillBar(bar, s)
 		fill:Hide()
 		return nil
 	end
-	anim:SetLooping("REPEAT")
+	anim:SetLooping("NONE")
+	if anim.SetToFinalAlpha then anim:SetToFinalAlpha(true) end
 	fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 2 * s, -3 * s)
 	fill:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 2 * s, 2 * s)
 	local mask = bar:CreateMaskTexture()
@@ -596,7 +598,17 @@ local function NewProgress(parent, name, width, height)
 			self.text:SetText((prefix or "") .. done .. " of " .. total .. " (" .. math.floor(done * 100 / total) .. "%)")
 			if done >= total then self.text:SetTextColor(0.5, 1, 0.5) else self.text:SetTextColor(1, 1, 1) end
 		end
+		if self.value ~= self.shownValue then
+			self.shownValue = self.value
+			self:Flow()
+		end
 		self:Paint()
+	end
+	-- The fill flows once, from its first frame.
+	function bar:Flow()
+		if not self.anim then return end
+		self.anim:Stop()
+		self.anim:Play()
 	end
 	-- With what Ready is working to now; the window adds the profile in front.
 	function bar:Refresh(prefix)
@@ -605,9 +617,7 @@ local function NewProgress(parent, name, width, height)
 	end
 	-- A bar stretched between two points learns its width late.
 	bar:SetScript("OnSizeChanged", function(self) self:Paint() end)
-	bar:SetScript("OnShow", function(self)
-		if self.anim and not self.anim:IsPlaying() then self.anim:Play() end
-	end)
+	bar:SetScript("OnShow", function(self) self:Flow() end)
 	-- Hovering lists every row.
 	bar:EnableMouse(true)
 	bar:SetScript("OnEnter", function(self)
@@ -1389,6 +1399,13 @@ local function BuildAlert(body)
 		"A panel like the bag window's round the bar, titled Conjurer. Off: just its icons, buttons and progress bar.")
 	framed:SetPoint("TOPLEFT", body, "TOPLEFT", 34, -y)
 	body.frameCheck = framed
+	y = y + 26
+	local stock = NewCheck(body, "With your water and food in its title",
+		function() return ns.db.alert.titleStock end,
+		function(v) ns.db.alert.titleStock = v ns.Alert.PaintBorder() end,
+		"How many you have of each, after its icon, in the title bar instead of Conjurer. A low one shows in orange.")
+	stock:SetPoint("TOPLEFT", body, "TOPLEFT", 60, -y)
+	body.titleStockCheck = stock
 	y = y + 26
 	-- The progress bar under it, and the count written on it.
 	local bar = NewCheck(body, "Show the progress bar",

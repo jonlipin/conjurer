@@ -26,7 +26,10 @@ local COG_ART = {
 		"common-dropdown-a-button-settings-pressed-shadowless" },
 	{ "gm-icon-settings", "gm-icon-settings-hover", "gm-icon-settings-pressed" },
 }
-local PROGRESS_H, PROGRESS_GAP = 23, 6 -- the professions book's bar, at its own height
+-- The professions book's bar at its own height, as far under the icons as it is over the panel's edge.
+local PROGRESS_H, PROGRESS_GAP = 23, 4
+-- Its frame sits 2 in from the art's ends, so it reaches 2 past the row to line up with the icons.
+local PROGRESS_OUT = 2
 -- The panel round the bar: the bag window's, as ShardGrid's soul shard and summons windows use. The
 -- bar sits this far inside it, under the title bar. Its metal corners overlap below MIN_W by MIN_H,
 -- so a smaller panel is drawn at that size and shrunk to fit instead, no further than MIN_FIT.
@@ -350,8 +353,8 @@ local function Build()
 
 	-- How far the conjuring has got, right under the icons and buttons.
 	progress = ns.UI.NewProgress(holder, "ConjurerAlertProgress", SIZE, PROGRESS_H)
-	progress:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -PROGRESS_GAP)
-	progress:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", 0, -PROGRESS_GAP)
+	progress:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", -PROGRESS_OUT, -PROGRESS_GAP)
+	progress:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", PROGRESS_OUT, -PROGRESS_GAP)
 	Drag(progress)
 
 	holder:Hide()
@@ -384,6 +387,22 @@ local function PlaceCog(on)
 	end
 end
 
+-- The panel's title: Conjurer, or what you have of your water and food, each after its icon, as
+-- ShardGrid's title gives its shard count. A count that is low shows in orange.
+function A.Title()
+	if not ns.db.alert.titleStock then return "Conjurer" end
+	local parts = {}
+	for _, kind in ipairs(ns.KIND_ORDER) do
+		local top = ns.TopKnown(kind)
+		if top then
+			local n = tostring(A.Total(kind))
+			if A.Low(kind) then n = "|cffff6119" .. n .. "|r" end
+			parts[#parts + 1] = "|T" .. tostring(ns.ItemIcon(top)) .. ":0|t " .. n
+		end
+	end
+	return #parts > 0 and table.concat(parts, "   ") or "Conjurer"
+end
+
 -- The panel round everything shown, the progress bar included, or no panel when it's turned off.
 -- Too small for its metal corners, it is drawn at their size and shrunk, as ShardGrid's are: its
 -- insets shrink with it, and its title is made bigger to stay readable.
@@ -400,10 +419,13 @@ function A.PaintBorder()
 	-- In the panel's own units, so on screen the insets shrink with it.
 	border:ClearAllPoints()
 	border:SetPoint("TOPLEFT", holder, "TOPLEFT", -INSET.left - SIDE / fit, INSET.top)
-	border:SetPoint("BOTTOMRIGHT", withBar and progress or holder, "BOTTOMRIGHT", INSET.right + SIDE / fit, -INSET.bottom)
+	-- To the row's right edge either way: the progress bar reaches a little past it.
+	local right = INSET.right + ((withBar and SIDE - PROGRESS_OUT) or SIDE) / fit
+	border:SetPoint("BOTTOMRIGHT", withBar and progress or holder, "BOTTOMRIGHT", right, -INSET.bottom)
 	border.fit = fit
 	PlaceCog(on)
 	local title = border.title
+	if title then title:SetText(A.Title()) end
 	if title and title.GetFont and title.SetFont then
 		if not titleFont then titleFont = { title:GetFont() } end
 		if titleFont[1] and titleFont[2] then
@@ -585,7 +607,7 @@ ns.debugSources[#ns.debugSources + 1] = function()
 			.. " (below " .. tostring(db.food) .. "), showing " .. tostring(report["alert showing"] or "nothing")
 			.. ", buttons " .. tostring(report["alert buttons"] or "not built")
 			.. ", frame " .. (db.frame and "on" or "off") .. " (" .. tostring(report["alert frame"] or "not built") .. ")"
-			.. ", size " .. tostring(db.scale or 100) .. "%"
+			.. ", size " .. tostring(db.scale or 100) .. "%" .. (db.titleStock and ", stock in its title" or "")
 			.. ", progress bar " .. (db.progress and "on" or "off") .. " (" .. tostring(report["progress bar art"] or "not built") .. ")",
 	}
 end
