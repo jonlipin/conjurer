@@ -1149,7 +1149,7 @@ local function BuildMacro(body)
 	macroButton:SetScript("OnDragStart", Guard("macro drag", function() ns.Macro.Pickup() end))
 	macroButton:SetScript("OnClick", Guard("macro button", function() ns.Macro.Pickup() UI.Refresh() end))
 	Tip(macroButton, "Eat and drink",
-		"Drag this onto your action bar. One press eats your best conjured food and drinks your best conjured water at the same time. Conjurer keeps it pointed at your best ranks as your bags change.")
+		"Drag this onto your action bar. One press drinks your best conjured water and eats your best conjured food at the same time. Conjurer keeps it pointed at your best ranks as your bags change.")
 
 	macroText = Text(body, "GameFontHighlight")
 	macroText:SetPoint("TOPLEFT", macroButton, "TOPRIGHT", 12, -1)
@@ -1184,11 +1184,11 @@ end
 
 local function RefreshMacro()
 	local _, food, water = ns.Macro.Body()
-	local icon = (food and ns.ItemIcon(food)) or (water and ns.ItemIcon(water)) or "Interface\\Icons\\INV_Misc_QuestionMark"
+	local icon = (water and ns.ItemIcon(water)) or (food and ns.ItemIcon(food)) or "Interface\\Icons\\INV_Misc_QuestionMark"
 	macroButton.icon:SetTexture(icon)
 	local parts = {}
-	if food then parts[#parts + 1] = "eats " .. ns.ShortName(food) end
 	if water then parts[#parts + 1] = "drinks " .. ns.ShortName(water) end
+	if food then parts[#parts + 1] = "eats " .. ns.ShortName(food) end
 	macroText:SetText(#parts > 0 and ("One press " .. table.concat(parts, " and ") .. ".") or "No conjured food or water to use yet.")
 	local index = ns.Macro.Index()
 	if index > 0 then

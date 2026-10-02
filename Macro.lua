@@ -1,5 +1,5 @@
 -- Conjurer
--- Macro: one action bar button that eats and drinks at the same time.
+-- Macro: one action bar button that drinks and eats at the same time, water first.
 --
 -- Food and water are both used instantly, so one macro can /use both in the same press. Conjurer
 -- writes it with the best rank of each you have in your bags and are high enough to use, falling
@@ -40,9 +40,10 @@ end
 function Mac.Body()
 	local food, water = Mac.Pick("food"), Mac.Pick("water")
 	if not (food or water) then return nil end
+	-- Water first: #showtooltip shows the first item, and the water is what a mage watches.
 	local lines = { "#showtooltip" }
-	if food then lines[#lines + 1] = "/use item:" .. food.item end
 	if water then lines[#lines + 1] = "/use item:" .. water.item end
+	if food then lines[#lines + 1] = "/use item:" .. food.item end
 	return table.concat(lines, "\n"), food, water
 end
 
