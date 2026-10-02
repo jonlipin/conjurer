@@ -44,8 +44,8 @@ local SECTIONS = {
 	{ key = "announce", title = "Announce button" },
 	{ key = "options", title = "Options" },
 }
-local macroButton, macroText, macroStatus, macroMake, alertMove
-local announceBox, announcePreview, announceMove
+local macroButton, macroText, macroStatus, macroMake
+local announceBox, announcePreview
 
 local function Guard(label, fn) return ns.Guard(label, fn) end
 
@@ -1270,17 +1270,11 @@ local function BuildAlert(body)
 		function() return ns.db.alert.sound end, function(v) ns.db.alert.sound = v end, nil)
 	sound:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
 	y = y + 30
-	alertMove = NewButton(body, "Show it to move it", 150, 22)
-	alertMove:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -y)
-	alertMove:SetScript("OnClick", Guard("alert move", function()
-		ns.Alert.SetPreview(not ns.Alert.preview)
-		UI.Refresh()
-	end))
 	local hint = Text(body, "GameFontDisableSmall")
-	hint:SetPoint("LEFT", alertMove, "RIGHT", 10, 0)
-	hint:SetWidth(360)
-	hint:SetText("Drag it into place. Its play button starts Ready; the cog opens this window.")
-	y = y + 30
+	hint:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y)
+	hint:SetWidth(540)
+	hint:SetText("Drag the bar by any of its icons to move it. Its play button starts Ready; the cog opens this window.")
+	y = y + 22
 	body:SetHeight(y + 4)
 end
 
@@ -1305,10 +1299,10 @@ end
 
 local function BuildAnnounce(body)
 	local y = 4
-	local shown = NewCheck(body, "Show the announce button",
+	local shown = NewCheck(body, "Show the announce button on the quick access bar",
 		function() return ns.db.announce.shown end,
 		function(v) ns.db.announce.shown = v ns.Announce.Update() end,
-		"A button you can put anywhere. One click tells your party, raid or battleground to trade you for food and water, with how much you have left.")
+		"One click tells your party, raid or battleground to trade you for food and water, with how much you have left.")
 	shown:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
 	y = y + 26
 	local groupOnly = NewCheck(body, "Only while you're in a group",
@@ -1350,14 +1344,8 @@ local function BuildAnnounce(body)
 	local send = NewButton(body, "Announce now", 120, 22)
 	send:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -y)
 	send:SetScript("OnClick", Guard("Announce now", function() ns.Announce.Send() UI.Refresh() end))
-	announceMove = NewButton(body, "Show it to move it", 150, 22)
-	announceMove:SetPoint("LEFT", send, "RIGHT", 8, 0)
-	announceMove:SetScript("OnClick", Guard("announce move", function()
-		ns.Announce.SetPreview(not ns.Announce.preview)
-		UI.Refresh()
-	end))
 	local reset = NewButton(body, "Reset text", 100, 22)
-	reset:SetPoint("LEFT", announceMove, "RIGHT", 8, 0)
+	reset:SetPoint("LEFT", send, "RIGHT", 8, 0)
 	reset:SetScript("OnClick", Guard("announce reset", function()
 		ns.db.announce.message = nil
 		UI.Refresh()
@@ -1377,7 +1365,6 @@ local function RefreshAnnounce()
 	else
 		announcePreview:SetText("Not in a group now. It would say: |cffffffff" .. text .. "|r")
 	end
-	announceMove:SetText(A.preview and "Done moving" or "Show it to move it")
 end
 
 local settingsState, settingsButton
@@ -1706,10 +1693,10 @@ local function Build()
 		readyTitle = readyTitle, readyDetail = readyDetail, keyButton = keyButton, capture = capture, clickButton = clickButton,
 		progress = progress,
 		groupEmpty = groupEmpty, optionsInfo = optionsInfo, macroButton = macroButton, macroText = macroText,
-		macroStatus = macroStatus, macroMake = macroMake, alertMove = alertMove,
+		macroStatus = macroStatus, macroMake = macroMake,
 		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs, tabStrip = tabStrip,
 		targetsBox = targetsBox, gemRows = gemRows,
-		announceBox = announceBox, announcePreview = announcePreview, announceMove = announceMove,
+		announceBox = announceBox, announcePreview = announcePreview,
 	}
 	local used = {}
 	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
@@ -1729,8 +1716,6 @@ local function Build()
 		Sound("IG_SPELLBOOK_CLOSE", 830)
 		if ticker then ticker:Cancel() ticker = nil end
 		if capturing and UI.EndCapture then UI.EndCapture() end
-		if ns.Alert and ns.Alert.preview then ns.Alert.SetPreview(false) end
-		if ns.Announce and ns.Announce.preview then ns.Announce.SetPreview(false) end
 	end)
 	ns.Stage("idle")
 end
@@ -1843,7 +1828,6 @@ function UI.Refresh()
 	for _, sync in ipairs(syncers) do sync() end
 	RefreshGroup(sections.group.body)
 	RefreshMacro()
-	alertMove:SetText(ns.Alert.preview and "Done moving" or "Show it to move it")
 	RefreshAnnounce()
 
 	local held, down = C.SettingState()

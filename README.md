@@ -27,9 +27,10 @@ A Blizzard-style window with the Ready bar at the top and sections you can fold 
   out of range or already handed out. The Trade button asks them to trade and fills the window.
   A hand-out is forgotten after the time you set (30 minutes to start, 0 keeps it until you press
   **Reset handed out**), so they're owed a new share.
-- **Eat and drink macro**: one action bar button that eats your best conjured food and drinks your
-  best conjured water at the same time.
-- **Low food and water alert**: an icon that shows when you run low, with a threshold for each.
+- **Eat and drink macro**: one action bar button that drinks your best conjured water and eats your
+  best conjured food at the same time.
+- **Quick access bar**: your water and food on screen, always or only when low, with the
+  conjure, Ready, announce and settings buttons and a progress bar.
 - **Options**: the chime, drinking when out of mana, player tooltips, tidying your bags, hold to
   cast, the minimap button, and the debug report.
 
@@ -107,10 +108,10 @@ Down** (Options > Combat). Conjurer looks after them in three ways:
 ## Conjuring by click
 
 Rather click than hold a key? The button next to the key button on the Ready bar, and the one on
-the low alert, conjure with a click: one cast per click, no Ready and no key needed. It always holds
+the quick access bar, conjure with a click: one cast per click, no Ready and no key needed. It always holds
 the next row still short of its target, counting items on their way, so a click during a row's last
-cast already makes the next row. On the alert, once every target is met, it conjures whatever the
-alert shows as low. It follows the same rules as Ready: a row with no room is passed over, and out
+cast already makes the next row. On the quick access bar, once every target is met, it conjures
+whatever the bar shows as low. It follows the same rules as Ready: a row with no room is passed over, and out
 of mana it drinks your best water until you're full. It works out of combat only.
 
 Holding the mouse button down conjures once: the game repeats a held cast only for a key, never a
@@ -153,28 +154,32 @@ don't set it off. Untick **Tidy conjured stacks in your bags** in Options to lea
 ## The eat and drink macro
 
 Click **Make macro** (or drag the icon to your bar). Conjurer writes a macro called Conjurer Eat
-that uses your best conjured food and water by item id, so it works in any client language, and
+that uses your best conjured water and food by item id (water first, so the button shows the
+water), so it works in any client language, and
 rewrites it as your bags change, out of combat. Delete it and Conjurer leaves it deleted.
 
-## The low food and water alert
+## The quick access bar
 
-When your conjured water or food drops below the amount you set (20 water and 10 food to start
-with), an icon for it appears, glowing like a spell alert, with how many you have left. It counts
-your best rank, the one you conjure (and any better one another mage gave you), so a pile of a
-lower rank doesn't hide that you're out; tick **Count lower ranks too** to count every rank you're
-high enough to use. It only alerts for what you can conjure.
+A small bar you can keep on screen: an icon for your conjured water and one for your food, each
+with how many you have, then the click-to-conjure button, the announce button (when it's turned
+on), a **play** button for Ready (stop while it runs) and a **cog** that opens Conjurer, with a
+progress bar underneath showing how far the conjuring has got. The same progress bar runs across
+the Conjurer window above the list; hover either one for every row's count.
 
-- Next to it are a click-to-conjure button, a **play** button that starts Ready (stop while it
-  runs) and a **cog** that opens Conjurer. Started from the alert, it stays up until conjuring
-  stops, so stop stays in reach.
-- **Show it**: out of combat (the default), in combat, or always.
+- **Show it**: **Always**, as a quick bar, or **Only when low**. Low is below the amount you set
+  (20 water and 10 food to start with); a low icon glows like a spell alert, and a kept mana gem
+  you're missing shows too.
+- It counts your best rank, the one you conjure (and any better one another mage gave you), so a
+  pile of a lower rank doesn't hide that you're out; tick **Count lower ranks too** to count every
+  rank you're high enough to use.
+- **Combat**: out of combat (the default), in combat, or in and out of combat.
 - Click an icon to conjure what it shows (one cast, out of combat), right-click it to start or stop
-  Ready, and drag it wherever you like (**Show it to move it** shows it so you can). A sound when it
-  appears is optional.
+  Ready. Started from the bar, it stays up until conjuring stops, so stop stays in reach.
+- Drag the bar by any of its icons to move it. A sound when something runs low is optional.
 
 ## The announce button
 
-An optional button you can put anywhere on screen (turn it on in the **Announce button** section).
+An optional button on the quick access bar (turn it on in the **Announce button** section).
 One click tells your group to trade you for food and water, with how much you have left:
 
 > Mage food and water here! Trade me for yours. I have 120 Crystal Water (55+), 40 Sparkling Water
@@ -189,8 +194,7 @@ One click tells your group to trade you for food and water, with how much you ha
 - By default it only shows while you're in a group. Untick **Only while you're in a group** and
   on your own it tells the people around you (Say), for a call in town. It won't send more than
   once every 10 seconds, and only when you click it.
-- Right-click it for Conjurer's settings, drag it to move it (**Show it to move it** shows it so
-  you can).
+- Right-click it for Conjurer's settings. Dragging it moves the whole bar.
 
 ## Commands
 

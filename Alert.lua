@@ -17,11 +17,10 @@ ns.Alert = A
 local SIZE = 40
 local GAP = 6
 local CONTROLS = 24
-local holder, controls, playButton, cogButton, conjureButton, progress
+local holder, controls, playButton, cogButton, conjureButton, announceButton, progress
 local icons = {}
 local wasLow = { water = false, food = false }
 A.combat = false
-A.preview = false
 A.sticky = nil -- kinds that stay up while conjuring started from the alert runs
 
 A.WHEN = { "out", "in", "always" }
@@ -87,7 +86,6 @@ local function Tooltip(self)
 		local what = (top and not ns.db.alert.lowerRanks) and (ns.ItemName(top) .. " or better") or "of every rank"
 		GameTooltip:AddLine(A.Total(kind) .. " " .. what .. " left; the alert shows below " .. tostring(ns.db.alert[kind]) .. ".", 1, 1, 1, true)
 	end
-	if A.preview then GameTooltip:AddLine("Showing so you can move it. Drag it where you want it.", 0.6, 0.85, 1, true) end
 	GameTooltip:AddLine(" ")
 	if self.castable and self.castEntry then
 		GameTooltip:AddLine("Click: conjure " .. ns.ShortName(self.castEntry) .. ", one cast" .. (ns.InCombat() and " (out of combat)" or ""), 0.7, 0.7, 0.7)
@@ -262,6 +260,10 @@ local function Build()
 	Drag(cogButton)
 	report["alert buttons"] = (playButton.up and "play art" or "words") .. ", " .. (cogButton.up and "cog art" or "words")
 
+	-- The announce button, when it's turned on, after the click-to-conjure one.
+	announceButton = ns.Announce and ns.Announce.Make(holder, SIZE)
+	if announceButton then Drag(announceButton) end
+
 	-- How far the conjuring has got, right under the icons and buttons.
 	progress = ns.UI.NewProgress(holder, "ConjurerAlertProgress", SIZE, 10)
 	progress:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -5)
@@ -311,7 +313,7 @@ function A.Update(quiet)
 		local sticky = A.sticky and A.sticky[e.key]
 		-- Kept on screen as a quick bar: water and food whether low or not (a gem only when missing).
 		local always = db.enabled and db.always and not e.gem and A.RightTime()
-		if ns.isMage and e.canShow and (A.preview or sticky or (low and A.RightTime()) or always) then
+		if ns.isMage and e.canShow and (sticky or (low and A.RightTime()) or always) then
 			show[#show + 1] = e
 			labels[#labels + 1] = e.label
 		end
@@ -331,7 +333,7 @@ function A.Update(quiet)
 		b:ClearAllPoints()
 		b:SetPoint("LEFT", holder, "LEFT", (i - 1) * (SIZE + GAP), 0)
 		b:Show()
-		local glowing = e.low or A.preview
+		local glowing = e.low
 		b.glow:SetShown(glowing and true or false)
 		if glowing and not b.anim:IsPlaying() then b.anim:Play() elseif not glowing then b.anim:Stop() end
 	end
@@ -344,12 +346,23 @@ function A.Update(quiet)
 		conjureButton:Show()
 		x = x + SIZE + GAP
 	end
+	if announceButton then
+		if ns.Announce.Wanted() then
+			ns.Announce.Paint()
+			announceButton:ClearAllPoints()
+			announceButton:SetPoint("LEFT", holder, "LEFT", x, 0)
+			announceButton:Show()
+			x = x + SIZE + GAP
+		else
+			announceButton:Hide()
+		end
+	end
 	controls:SetPoint("LEFT", holder, "LEFT", x, 0)
 	holder:SetWidth(x + CONTROLS)
 	PaintPlay()
 	if progress then progress:Refresh() end
 	holder:Show()
-	report["alert showing"] = table.concat(labels, " and ") .. (A.preview and " (moving)" or "") .. (A.sticky and " (conjuring)" or "")
+	report["alert showing"] = table.concat(labels, " and ") .. (A.sticky and " (conjuring)" or "")
 		.. (db.always and " (kept on screen)" or "")
 end
 
@@ -367,13 +380,6 @@ function A.Refresh()
 		PaintPlay()
 		if progress then progress:Refresh() end
 	end
-end
-
--- Shows both icons whatever you have, so they can be dragged into place.
-function A.SetPreview(on)
-	A.preview = on and true or false
-	A.Update(true)
-	ns.Refresh()
 end
 
 function A.SetWhen(when)

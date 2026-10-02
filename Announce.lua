@@ -1,5 +1,5 @@
 -- Conjurer
--- Announce: a button you can put anywhere that tells your party, raid or battleground to trade
+-- Announce: a button on the quick access bar that tells your party, raid or battleground to trade
 -- you for food and water, with how much of each you have left.
 --
 -- The message is yours to word; {stock} becomes what you have ("120 Crystal Water (55+) and 60
@@ -19,7 +19,6 @@ local SIZE = 36
 local COOLDOWN = 10
 local MAX_LENGTH = 255
 local button
-N.preview = false
 N.last = -COOLDOWN
 
 N.DEFAULT_MESSAGE = "Mage food and water here! Trade me for yours. I have {stock}."
@@ -133,21 +132,6 @@ function N.Send()
 	return ok
 end
 
-local function SavePoint()
-	local point, _, relPoint, x, y = button:GetPoint(1)
-	ns.db.announce.point = { point, relPoint, x, y }
-end
-
-local function Place()
-	button:ClearAllPoints()
-	local p = ns.db.announce.point
-	if type(p) == "table" and p[1] then
-		button:SetPoint(p[1], UIParent, p[2] or p[1], p[3] or 0, p[4] or 0)
-	else
-		button:SetPoint("CENTER", UIParent, "CENTER", 120, 180)
-	end
-end
-
 local function Tooltip(self)
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 	GameTooltip:SetText("Announce food and water", 1, 1, 1)
@@ -159,24 +143,28 @@ local function Tooltip(self)
 	else
 		GameTooltip:AddLine("You have no conjured food or water to offer yet.", 1, 0.5, 0.5, true)
 	end
-	if N.preview then GameTooltip:AddLine("Showing so you can move it. Drag it where you want it.", 0.6, 0.85, 1, true) end
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("Click: announce", 0.7, 0.7, 0.7)
 	GameTooltip:AddLine("Right-click: Conjurer settings", 0.7, 0.7, 0.7)
-	GameTooltip:AddLine("Drag: move", 0.7, 0.7, 0.7)
+	GameTooltip:AddLine("Drag: move the bar", 0.7, 0.7, 0.7)
 	GameTooltip:Show()
 end
 
-local function Build()
-	if button then return end
+-- Whether the button belongs on the quick access bar now: turned on, and in a group unless it
+-- isn't kept to groups.
+function N.Wanted()
+	local db = ns.db and ns.db.announce
+	return ns.isMage and db and db.shown and (not db.groupOnly or N.Channel() ~= nil) and true or false
+end
+
+-- The button itself, made by the quick access bar as one of its own (which lays it out and lets it
+-- drag the bar).
+function N.Make(parent, size)
+	if button then return button end
 	ns.Stage("building the announce button")
-	button = CreateFrame("Button", "ConjurerAnnounce", UIParent)
-	button:SetSize(SIZE, SIZE)
-	button:SetFrameStrata("MEDIUM")
-	button:SetMovable(true)
-	button:SetClampedToScreen(true)
-	Place()
-	ns.UI.DressIcon(button, SIZE)
+	button = CreateFrame("Button", "ConjurerAnnounce", parent)
+	button:SetSize(size, size)
+	ns.UI.DressIcon(button, size)
 	-- A chat bubble in the corner says what it does.
 	button.badge = button:CreateTexture(nil, "OVERLAY", nil, 3)
 	button.badge:SetSize(18, 18)
@@ -195,12 +183,6 @@ local function Build()
 		button.cooldown = cooldown
 	end
 	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	button:RegisterForDrag("LeftButton")
-	button:SetScript("OnDragStart", function(self) self:StartMoving() end)
-	button:SetScript("OnDragStop", ns.Guard("announce drag", function(self)
-		self:StopMovingOrSizing()
-		SavePoint()
-	end))
 	button:SetScript("OnClick", ns.Guard("announce button", function(_, which)
 		if which == "RightButton" then ns.UI.Show() else N.Send() end
 	end))
@@ -208,28 +190,26 @@ local function Build()
 	button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	button:Hide()
 	ns.Stage("idle")
+	return button
 end
 
+-- Its face: your best water (or food).
+function N.Paint()
+	if not button then return end
+	local top = ns.TopKnown("water") or ns.TopKnown("food")
+	button.icon:SetTexture(top and ns.ItemIcon(top) or "Interface\\Icons\\INV_Drink_18")
+end
+
+-- Says where things stand and has the quick access bar lay itself out again.
 function N.Update()
 	if not ns.db then return end
 	local db = ns.db.announce
-	local wanted = ns.isMage and (N.preview or (db.shown and (not db.groupOnly or N.Channel() ~= nil)))
-	if not wanted then
-		if button then button:Hide() end
+	if N.Wanted() then
+		report["announce button"] = "on the quick access bar"
+	else
 		report["announce button"] = db.shown and "on, hidden until you're in a group" or "off"
-		return
 	end
-	Build()
-	local top = ns.TopKnown("water") or ns.TopKnown("food")
-	button.icon:SetTexture(top and ns.ItemIcon(top) or "Interface\\Icons\\INV_Drink_18")
-	button:Show()
-	report["announce button"] = "showing" .. (N.preview and " (moving)" or "")
-end
-
-function N.SetPreview(on)
-	N.preview = on and true or false
-	N.Update()
-	ns.Refresh()
+	if ns.Alert and ns.Alert.Update then ns.Alert.Update(true) end
 end
 
 function N.Summary()
