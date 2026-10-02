@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2 - 2026-10-01
+
+- Fixed: running out of mana on any other spell, with Ready off, made Conjurer think you wanted a drink, so drinking afterwards showed its "Drinking" message. Only a conjure's "Not enough mana" counts now: while Ready is lit, or just after a click on one of Conjurer's conjure buttons or icons.
+
 ## 1.2.1 - 2026-09-29
 
 - Before the trade window is filled (by itself, with Give share, or with + Water and + Food), loose stacks of what's being handed over are merged first, so whole stacks go over instead of a 13 and a 7. With tidying switched off in Options they go as they are.

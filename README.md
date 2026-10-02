@@ -77,8 +77,9 @@ like holding one of your action bar keys.
   items arrive in two parts (one tops up a stack, the rest start a new one) isn't taken as short.
 - **Bags full**: each cast checks that the next one will fit. The hold ends on the last cast that
   fits, a row with no room is passed over, and when nothing fits Ready goes off and says so.
-- **Out of mana**: once the next cast can't be paid for, or the game says "Not enough mana", the
-  borrowed button gets your best conjured water instead, so your next press drinks (the game won't
+- **Out of mana**: once the next cast can't be paid for, or the game says "Not enough mana" to a
+  conjure (while Ready is lit, or just after a click on one of Conjurer's buttons or icons; another
+  spell running dry is none of its business), the borrowed button gets your best conjured water instead, so your next press drinks (the game won't
   let an addon drink by itself). As soon as the drink starts the spell is back, so you stand up and
   conjure whenever you like. The Ready bar counts the drink down, and pressing too soon says how long
   it has left instead of drinking another water. Untick **Drink when you run out of mana** in Options

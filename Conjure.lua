@@ -1100,6 +1100,10 @@ ns.On("UI_ERROR_MESSAGE", function(kind, message)
 	local oom = (LE_GAME_ERR_OUT_OF_MANA ~= nil and kind == LE_GAME_ERR_OUT_OF_MANA)
 		or (ERR_OUT_OF_MANA ~= nil and message == ERR_OUT_OF_MANA)
 	if not (oom and ns.isMage and ns.db) then return end
+	-- Only a conjure's refusal counts. The error doesn't say which spell it was, so it has to come
+	-- while Ready is lit or just after a click on one of Conjurer's buttons; another spell out of
+	-- mana, and the drink taken after it, is none of Conjurer's business (user, 2026-10-01).
+	if not (C.armed or (ns.Click and ns.Click.JustClicked())) then return end
 	-- Pressed while a drink runs: not another drink, just how long it has left.
 	if C.DrinkLeft() then
 		C.Say("Still drinking: " .. C.DrinkLeft() .. " seconds left.")

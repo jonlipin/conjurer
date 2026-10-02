@@ -139,6 +139,18 @@ local function Tooltip(self)
 	GameTooltip:Show()
 end
 
+-- When one of Conjurer's buttons was last clicked to conjure, so the game's "Not enough mana"
+-- right after it can be told from any other spell's (the error doesn't say which spell it was).
+-- Noted before the click casts, since the game may refuse during the click itself.
+local CLICK_COUNTS_FOR = 2
+local function NoteClick(_, which)
+	if which ~= "RightButton" then K.clickedAt = GetTime() end
+end
+
+function K.JustClicked()
+	return K.clickedAt ~= nil and GetTime() - K.clickedAt <= CLICK_COUNTS_FOR
+end
+
 -- A click button of the given size. fallback, when given, names what to conjure once every target
 -- is met (the alert uses it for whatever it shows as low). Nil when the client lacks the template.
 function K.Make(name, parent, size, fallback)
@@ -153,6 +165,7 @@ function K.Make(name, parent, size, fallback)
 	b:SetAttribute("useOnKeyDown", false)
 	ns.UI.DressIcon(b, size)
 	b.fallback = fallback
+	b:SetScript("PreClick", NoteClick)
 	b:SetScript("PostClick", ns.Guard("click conjure", function(self)
 		if ns.InCombat() then
 			ns.Log("click in combat: nothing (out of combat only)")
@@ -194,6 +207,7 @@ function K.CastButton(name, parent)
 	local ok, b = pcall(CreateFrame, "Button", name, parent, "InsecureActionButtonTemplate")
 	if not (ok and b) then return nil end
 	b:SetAttribute("useOnKeyDown", false)
+	b:SetScript("PreClick", NoteClick)
 	b.castable = true
 	return b
 end
