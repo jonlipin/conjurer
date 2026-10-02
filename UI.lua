@@ -634,9 +634,17 @@ local function NewProgress(parent, name, width, height)
 	-- A bar stretched between two points learns its width late.
 	bar:SetScript("OnSizeChanged", function(self) self:Paint() end)
 	bar:SetScript("OnShow", function(self) self:Flow() end)
+	-- Hovered, the fill flows round and round; left, it finishes the pass it's on and rests.
+	function bar:SetHovered(on)
+		if not self.anim then return end
+		self.anim:SetLooping(on and "REPEAT" or "NONE")
+		if on and not self.anim:IsPlaying() then self.anim:Play() end
+	end
+	bar:SetScript("OnHide", function(self) self:SetHovered(false) end)
 	-- Hovering lists every row.
 	bar:EnableMouse(true)
 	bar:SetScript("OnEnter", function(self)
+		self:SetHovered(true)
 		local done, total, rows = ns.Conjure.Progress()
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 		GameTooltip:SetText("Conjured " .. done .. " of " .. total .. " (" .. ns.PROFILE_BY_KEY[ns.ProfileKey()].label .. ")", 1, 1, 1)
@@ -648,7 +656,10 @@ local function NewProgress(parent, name, width, height)
 		if #rows == 0 then GameTooltip:AddLine("No targets set.", 0.8, 0.8, 0.8) end
 		GameTooltip:Show()
 	end)
-	bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	bar:SetScript("OnLeave", function(self)
+		self:SetHovered(false)
+		GameTooltip:Hide()
+	end)
 	report["progress bar art"] = bar.art
 	return bar
 end

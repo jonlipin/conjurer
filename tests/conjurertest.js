@@ -2237,6 +2237,18 @@ else
   AP:Hide() AP:Show()
   check("and when it comes into view", AP.anim.playing)
   AP.anim.playing = false
+  AP.scripts.OnEnter(AP)
+  check("hovered, it flows round and round", AP.anim.playing and AP.anim.looping == "REPEAT")
+  AP.scripts.OnLeave(AP)
+  check("left, it finishes the pass it's on and rests", AP.anim.looping == "NONE")
+  P.progress.anim.playing = false
+  P.progress.scripts.OnEnter(P.progress)
+  check("the window's bar too", P.progress.anim.playing and P.progress.anim.looping == "REPEAT")
+  P.progress:Hide()
+  check("and it stops going round if it's hidden while hovered", P.progress.anim.looping == "NONE")
+  P.progress:Show()
+  GameTooltip:Hide()
+  AP.anim.playing = false
   RunTimers(31)
   check("and again now and then, after a random wait of up to half a minute", AP.anim.playing)
   AP.anim.playing = false
