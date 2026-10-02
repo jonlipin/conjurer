@@ -84,11 +84,16 @@ local function Tooltip(self)
 		GameTooltip:SetText(ns.ItemName(self.gem) .. (have and " is in your bags" or " is missing"), 1, 0.82, 0)
 		GameTooltip:AddLine("Conjurer keeps one of each mana gem you tick.", 1, 1, 1, true)
 	else
+		-- Low only when it is: kept on screen as a quick bar, plenty shows here too.
 		local kind = self.kind
-		GameTooltip:SetText("Conjured " .. ns.KIND_LABEL[kind]:lower() .. " is low", 1, 0.82, 0)
+		local low = A.Low(kind)
+		GameTooltip:SetText("Conjured " .. ns.KIND_LABEL[kind]:lower() .. (low and " is low" or ""), 1, 0.82, 0)
 		local top = ns.TopKnown(kind)
 		local what = (top and not ns.db.alert.lowerRanks) and (ns.ItemName(top) .. " or better") or "of every rank"
-		GameTooltip:AddLine(A.Total(kind) .. " " .. what .. " left; the alert shows below " .. tostring(ns.db.alert[kind]) .. ".", 1, 1, 1, true)
+		local below = tonumber(ns.db.alert[kind]) or 0
+		GameTooltip:AddLine((low and "Only " or "") .. A.Total(kind) .. " " .. what .. (low and " left." or " in your bags."), 1, 1, 1, true)
+		GameTooltip:AddLine(below > 0 and ("Low is fewer than " .. below .. ": the icon glows then.")
+			or "Never counted as low: its threshold is 0.", 0.8, 0.8, 0.8, true)
 	end
 	GameTooltip:AddLine(" ")
 	if self.castable and self.castEntry then

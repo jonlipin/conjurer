@@ -2200,6 +2200,10 @@ Click(P.sections.alert.body.show.always)
 check("set to Always, it's on screen with nothing low", ns.db.alert.always and ConjurerAlert.shown and ConjurerAlertWater:IsVisible()
   and ConjurerAlertFood:IsVisible() and P.sections.alert.body.show.always.checked and not P.sections.alert.body.show.low.checked)
 check("with its counts, and no glow", tostring(ConjurerAlertWater.count.text) == "40" and not ConjurerAlertWater.glow.shown)
+TIP_LINES = {}
+ConjurerAlertWater.scripts.OnEnter(ConjurerAlertWater)
+check("its tooltip doesn't call plenty low", GameTooltip.text == "Conjured water" and (TIP_LINES[1] or ""):find("^40 .- in your bags%.$") ~= nil
+  and TIP_LINES[2] == "Low is fewer than 20: the icon glows then.", tostring(GameTooltip.text) .. " / " .. tostring(TIP_LINES[1]))
 check("and the play button and cog", ConjurerAlertPlay:IsVisible() and ConjurerAlertSettings:IsVisible())
 check("a progress bar under it says how far the conjuring has got", ConjurerAlertProgress and ConjurerAlertProgress:IsVisible()
   and ConjurerAlertProgress.text.text == "60 of 80 (75%)" and ConjurerAlertProgress.value == 0.75, ConjurerAlertProgress and ConjurerAlertProgress.text.text)
@@ -2324,6 +2328,10 @@ fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("low on water, the water alert shows", ConjurerAlertWater:IsVisible() and not ConjurerAlertFood:IsVisible())
 check("with how many are left", tostring(ConjurerAlertWater.count.text) == "5")
 check("its icon is the best water", ConjurerAlertWater.icon.texture == "itemicon:8079")
+TIP_LINES = {}
+ConjurerAlertWater.scripts.OnEnter(ConjurerAlertWater)
+check("and its tooltip says it's low", GameTooltip.text == "Conjured water is low" and (TIP_LINES[1] or ""):find("^Only 5 .- left%.$") ~= nil,
+  tostring(GameTooltip.text) .. " / " .. tostring(TIP_LINES[1]))
 check("and the proc glow", ConjurerAlertWater.glow.shown and ConjurerAlertWater.anim.playing)
 local CONJ_W = ConjurerAlertConjure and 46 or 0
 check("the alert is one icon wide, plus its buttons", ConjurerAlert.w == 40 + 6 + CONJ_W + 46 + 24, ConjurerAlert.w)
