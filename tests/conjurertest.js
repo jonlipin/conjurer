@@ -2411,7 +2411,7 @@ SlashCmdList.CONJURER("ready")
 check("/conjure ready works too", C.armed)
 SlashCmdList.CONJURER("ready")
 SlashCmdList.CONJURER("debug")
-check("/conjure debug prints the report", ChatWith("Conjurer 1.3.0 debug report") == 1 and ChatWith("refused actions: none") == 1)
+check("/conjure debug prints the report", ChatWith("Conjurer 1.3.1 debug report") == 1 and ChatWith("refused actions: none") == 1)
 check("the report names the borrowed button", ChatWith("button to borrow: Action Bar") == 1)
 check("nothing was refused in the whole run", #ns.refused == 0)
 fire("ADDON_ACTION_FORBIDDEN", "Conjurer", "UNKNOWN()")
@@ -2572,42 +2572,40 @@ local AB = P.sections.announce.body
 ns.db.alert.always = true
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 local barWidth = ConjurerAlert.w
-local function AnnounceUp() return (ConjurerAnnounce ~= nil and ConjurerAnnounce:IsVisible())
-  or (ConjurerAnnounceHeader ~= nil and ConjurerAnnounceHeader:IsVisible()) end
+local function AnnounceUp() return ConjurerAnnounce ~= nil and ConjurerAnnounce:IsVisible() end
 check("the announce button is off until you turn it on", ns.db.announce.shown == false and not AnnounceUp())
 Click(AB.shownCheck)
 check("turned on, it waits until you're in a group", ns.db.announce.shown and not AnnounceUp())
 GROUP = { { unit = "party1", guid = "Q1", name = "Quen", level = 60, class = "PRIEST" } }
 fire("GROUP_ROSTER_UPDATE") RunTimers(0)
-check("in a party it shows, in the quick access bar's title bar", AnnounceUp() and ConjurerAnnounceHeader:IsVisible()
-  and not ConjurerAnnounce:IsVisible() and ConjurerAnnounceHeader.parent == ConjurerAlert)
+check("in a party it shows, in the quick access bar's title bar", AnnounceUp() and ConjurerAnnounce.parent == ConjurerAlert)
 local hfit = ConjurerAlertBorder.fit
-check("at its left end, mirroring the cog, the row as it was", ConjurerAnnounceHeader.points[1][1] == "TOPLEFT"
-  and ConjurerAnnounceHeader.points[1][2] == ConjurerAlertBorder and math.abs(ConjurerAnnounceHeader.points[1][4] - 7 * hfit) < 1e-9
-  and math.abs(ConjurerAnnounceHeader.points[1][5] + 3 * hfit) < 1e-9 and ConjurerAnnounceHeader.w == ConjurerAlertSettings.w
+check("at its left end, mirroring the cog, the row as it was", ConjurerAnnounce.points[1][1] == "TOPLEFT"
+  and ConjurerAnnounce.points[1][2] == ConjurerAlertBorder and math.abs(ConjurerAnnounce.points[1][4] - 7 * hfit) < 1e-9
+  and math.abs(ConjurerAnnounce.points[1][5] + 3 * hfit) < 1e-9 and ConjurerAnnounce.w == ConjurerAlertSettings.w
   and ConjurerAlert.w == barWidth, ConjurerAlert.w .. " " .. barWidth)
-check("the chat symbol in a framed button of the cog's family", ConjurerAnnounceHeader.art.atlas == "common-dropdown-a-button-sharetochat"
-  or (BARE and ConjurerAnnounceHeader.bubble ~= nil))
+check("the chat symbol in a framed button of the cog's family", ConjurerAnnounce.art.atlas == "common-dropdown-a-button-sharetochat"
+  or (BARE and ConjurerAnnounce.bubble ~= nil))
 Click(P.sections.alert.body.frameCheck)
-check("without the panel it's an icon in the row after the click-to-conjure button, and the row grows to fit it",
-  not ConjurerAnnounceHeader:IsVisible() and ConjurerAnnounce:IsVisible() and (BARE or (ConjurerAnnounce.points[1][2] == ConjurerAlert
-  and ConjurerAnnounce.points[1][4] == ConjurerAlertConjure.points[1][4] + 42)), ConjurerAlert.w .. " " .. barWidth)
-check("with a chat bubble on your best water", ConjurerAnnounce.icon.texture == "itemicon:8079"
-  and (ConjurerAnnounce.badge.atlas == "communities-icon-chat" or (BARE and not ConjurerAnnounce.badge.shown)))
+local cx = ConjurerAlertPlay.points[1][4] + 40 + 2 + (24 - 18) / 2
+check("without the panel it's under the cog at the end of the row, the two a little smaller, one over the other",
+  ConjurerAnnounce:IsVisible() and ConjurerAnnounce.points[1][1] == "BOTTOMLEFT" and ConjurerAnnounce.points[1][2] == ConjurerAlert
+  and ConjurerAnnounce.points[1][4] == cx and ConjurerAlertSettings.points[1][1] == "TOPLEFT" and ConjurerAlertSettings.points[1][4] == cx
+  and ConjurerAnnounce.w == 18 and ConjurerAlertSettings.w == 18, tostring(ConjurerAnnounce.points[1][4]) .. " " .. cx)
+check("the row no wider for it than for the cog alone", ConjurerAlert.w == barWidth + 2 + 24, ConjurerAlert.w .. " " .. barWidth)
 Click(P.sections.alert.body.frameCheck)
-check("the panel back, it's back in the title bar", ConjurerAnnounceHeader:IsVisible() and not ConjurerAnnounce:IsVisible()
-  and ConjurerAlert.w == barWidth)
+check("the panel back, it's back in the title bar", ConjurerAnnounce:IsVisible() and ConjurerAnnounce.points[1][2] == ConjurerAlertBorder
+  and ConjurerAnnounce.w == ConjurerAlertSettings.w and ConjurerAlert.w == barWidth)
 ClearBags()
 AddItems(8079, 45)
 AddItems(8078, 20)
 AddItems(22895, 20)
 SENT = {}
-Click(ConjurerAnnounceHeader)
+Click(ConjurerAnnounce)
 check("a click tells the party", #SENT == 1 and SENT[1].channel == "PARTY")
 check("what you have left, best rank first, with the level each needs", SENT[1].text
   == "Mage food and water here! Trade me for yours. I have 45 Crystal Water (55+), 20 Sparkling Water (45+) and 20 Cinnamon Roll (55+).", SENT[1].text)
-check("the button shows its cooldown", BARE or (ConjurerAnnounce.cooldown and ConjurerAnnounce.cooldown.cd and ConjurerAnnounce.cooldown.cd[2] == 10
-  and ConjurerAnnounceHeader.cooldown.cd[2] == 10))
+check("the button shows its cooldown", BARE or (ConjurerAnnounce.cooldown and ConjurerAnnounce.cooldown.cd and ConjurerAnnounce.cooldown.cd[2] == 10))
 Click(ConjurerAnnounce)
 check("not twice in a row", #SENT == 1 and ChatWith("Announced a moment ago") == 1)
 fire("CHAT_MSG_PARTY", SENT[1].text, "Vatik") RunTimers(0)
@@ -2651,10 +2649,10 @@ Click(ConjurerAnnounce)
 check("with nothing to offer it says so and sends nothing", #SENT == before and ChatWith("You have no conjured food or water to offer yet.") == 1)
 AddItems(8079, 45)
 ConjurerFrame:Hide()
-ConjurerAnnounceHeader.scripts.OnClick(ConjurerAnnounceHeader, "RightButton") RunTimers(0)
+ConjurerAnnounce.scripts.OnClick(ConjurerAnnounce, "RightButton") RunTimers(0)
 check("right-click opens Conjurer", ConjurerFrame.shown)
 ns.db.alert.point = nil
-ConjurerAnnounceHeader.scripts.OnDragStop(ConjurerAnnounceHeader)
+ConjurerAnnounce.scripts.OnDragStop(ConjurerAnnounce)
 check("dragging it moves the whole bar", type(ns.db.alert.point) == "table")
 REFUSE_CHAT = true
 RunTimers(11)
@@ -2812,7 +2810,7 @@ local L = ConjurerLog
 local all = table.concat(L.entries, "\n")
 check("the log is an account-wide saved variable", type(L) == "table" and type(L.entries) == "table" and L.session == 1)
 check("lines carry the session and the time", L.entries[1]:match("^#1 %d%d:%d%d:%d%d ") ~= nil, L.entries[1])
-check("it starts with the session", all:find("session start: Conjurer 1.3.0, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
+check("it starts with the session", all:find("session start: Conjurer 1.3.1, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
 check("it has the window's templates", all:find("window built: window template ButtonFrameTemplate", 1, true) ~= nil)
 check("it has Ready being lit", all:find("Ready is lit; hold to cast on", 1, true) ~= nil)
 check("it has the binding", all:find("bind F -> MULTIACTIONBAR7BUTTON12", 1, true) ~= nil)
@@ -3079,7 +3077,7 @@ let svText = null;
   const log = data.ConjurerLog || {};
   check('the reader parses it', Array.isArray(log.entries) && log.entries.length === 1500, log.entries && log.entries.length);
   check('with the session number', log.session === 1);
-  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.3\.0 debug report/.test(log.report[0]));
+  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.3\.1 debug report/.test(log.report[0]));
   const { execFileSync } = require('child_process');
   const out = execFileSync(process.execPath, [DIR + 'tools/conjurer-log.js', '--file', tmp, '--last', '5'], { encoding: 'utf8' });
   check('the command prints the file and the lines', out.includes('Conjurer log: ' + tmp) && out.includes('filler 1600') && out.includes('--- debug report'));
@@ -3113,8 +3111,8 @@ let svText = null;
   const field = (text, name) => { const m = new RegExp('^## ' + name + ': *(.*)$', 'm').exec(text || ''); return m ? m[1].trim() : null; };
   check('the TOC is for this client', field(toc, 'Interface') === '16001');
   check('titled Conjurer', field(toc, 'Title') === 'Conjurer');
-  check('version 1.3.0', field(toc, 'Version') === '1.3.0');
-  check('the version matches the code', /ns\.version = "1\.3\.0"/.test(sources['Core.lua']));
+  check('version 1.3.1', field(toc, 'Version') === '1.3.1');
+  check('the version matches the code', /ns\.version = "1\.3\.1"/.test(sources['Core.lua']));
   check('per-character saved variables', field(toc, 'SavedVariablesPerCharacter') === 'ConjurerDB');
   const listed = toc.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('#')).map(l => l.trim());
   check('the TOC lists the XML and every Lua file in order', listed.join(',') === ['Conjurer.xml'].concat(files).join(','), listed.join(','));
@@ -3126,7 +3124,7 @@ let svText = null;
   const changelog = (read('CHANGELOG.md') || '').replace(/\r\n/g, '\n');
   const notes = (read('RELEASE-NOTES.md') || '').replace(/\r\n/g, '\n');
   const top = changelog.split(/\n(?=## )/).find(s => s.startsWith('## ')) || '';
-  check('the changelog opens on 1.3.0', /^## 1\.3\.0 - /.test(top), top.slice(0, 30));
+  check('the changelog opens on 1.3.1', /^## 1\.3\.1 - /.test(top), top.slice(0, 30));
   check('the release notes are that section and nothing else', notes.replace(/\s+$/, '') === top.replace(/\s+$/, ''));
   check('there is a licence', /MIT License/.test(read('LICENSE') || ''));
   check('the README names the slash command', /\/conjure/.test(read('README.md') || ''));

@@ -3,7 +3,7 @@
 
 local ADDON, ns = ...
 
-ns.version = "1.3.0"
+ns.version = "1.3.1"
 ns.report = {}   -- one line per fact about this client, printed by /conjure debug
 ns.refused = {}  -- actions the client refused, with the stage the addon was in at the time
 ns.stage = "load"

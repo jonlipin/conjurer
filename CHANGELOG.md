@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1 - 2026-10-02
+
+- With the quick access bar's panel hidden, the announce button is the same framed chat button as in the title bar, under the cog at the end of the row, instead of a big icon in the row.
+
 ## 1.3.0 - 2026-10-02
 
 - The low food and water alert is now the quick access bar. Show it Always, as a quick bar, or Only when low: your water and food with how many you have, the click-to-conjure button, the announce button, a Ready button like the window's (it glows while Ready is lit, however you started it), and the cog that opens Conjurer. Everything else it had is kept; the combat choice now reads out of combat, in combat, or in and out of combat.
