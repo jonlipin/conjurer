@@ -2345,7 +2345,9 @@ local artShown, artTop = 20 * 20 / 27, 20 / 27
 check("the cog then ends the row, what shows of it in the middle of the icons", ConjurerAlertSettings.points[1][2] == ConjurerAlert
   and ConjurerAlertSettings.points[1][4] == rowW + 2 + 2 and ConjurerAlertSettings.w == 20
   and math.abs((-ConjurerAlertSettings.points[1][5] + artTop) - (40 - artShown) / 2) < 1e-9
-  and ConjurerAlert.w == rowW + 2 + 24, ConjurerAlert.w)
+  and math.abs(ConjurerAlert.w - (ConjurerAlertSettings.points[1][4] + 20 * 23 / 27)) < 1e-9, ConjurerAlert.w)
+check("the row, and so the progress bar, ends where the cog's art does", math.abs(ConjurerAlert.w - (rowW + 2 + 2 + 20 * 23 / 27)) < 1e-9
+  and ConjurerAlertProgress.points[2][2] == ConjurerAlert and ConjurerAlertProgress.points[2][4] == 2)
 fire("BAG_UPDATE_DELAYED") RunTimers(0)
 check("and stay gone as the bags change", not ConjurerAlertBorder.shown and ConjurerAlert.shown)
 Click(AL.frameCheck)
@@ -2603,7 +2605,8 @@ local annTop = -ConjurerAnnounce.points[1][5] + artTop
 local above, between, below = cogTop, annTop - (cogTop + artShown), 40 - (annTop + artShown)
 check("with the same room above, between and below them", above > 2 and math.abs(above - between) < 1e-9 and math.abs(between - below) < 1e-9,
   above .. " " .. between .. " " .. below)
-check("the row no wider for it than for the cog alone", ConjurerAlert.w == barWidth + 2 + 24, ConjurerAlert.w .. " " .. barWidth)
+check("the row no wider for it than for the cog alone, ending where their art does", math.abs(ConjurerAlert.w - (cx + 20 * 23 / 27)) < 1e-9,
+  ConjurerAlert.w .. " " .. barWidth)
 Click(P.sections.alert.body.frameCheck)
 check("the panel back, it's back in the title bar", ConjurerAnnounce:IsVisible() and ConjurerAnnounce.points[1][2] == ConjurerAlertBorder
   and ConjurerAnnounce.w == ConjurerAlertSettings.w and ConjurerAlert.w == barWidth)

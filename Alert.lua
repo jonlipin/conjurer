@@ -22,7 +22,9 @@ local CONTROLS = 24 -- the cog's room at the end of the row, when there's no pan
 local COG = 20
 -- The cog family's art fills its 27 square across from 4 to 23 but down only from 1 to 21, a
 -- shadow below, so it's placed by what shows rather than by its square.
-local ART_SIZE, ART_TOP, ART_BOTTOM = 27, 1, 21
+local ART_SIZE, ART_TOP, ART_BOTTOM, ART_RIGHT = 27, 1, 21, 23
+-- Without the panel the row ends where the cog's art does, so the progress bar under it does too.
+local CONTROLS_END = (CONTROLS - COG) / 2 + COG * ART_RIGHT / ART_SIZE
 local COG_ART = {
 	{ "common-dropdown-a-button-settings", "common-dropdown-a-button-settings-hover", "common-dropdown-a-button-settings-pressed" },
 	{ "common-dropdown-a-button-settings-shadowless", "common-dropdown-a-button-settings-hover-shadowless",
@@ -527,7 +529,7 @@ function A.Update(quiet)
 	x = x + SIZE + GAP
 	-- The cog takes the panel's title bar, or the end of the row without the panel.
 	cogX = x
-	holder:SetWidth(db.frame and (x - GAP) or (x + CONTROLS))
+	holder:SetWidth(db.frame and (x - GAP) or (x + CONTROLS_END))
 	PaintPlay()
 	A.PaintProgress()
 	holder:Show()
