@@ -3,7 +3,7 @@
 
 local ADDON, ns = ...
 
-ns.version = "1.3.1"
+ns.version = "1.4.0"
 ns.report = {}   -- one line per fact about this client, printed by /conjure debug
 ns.refused = {}  -- actions the client refused, with the stage the addon was in at the time
 ns.stage = "load"
@@ -114,7 +114,9 @@ local DEFAULTS = {
 	manageCVars = true,
 	leaveCVarsOn = false,
 	yield = {},
-	collapsed = { options = true },
+	collapsed = { options = true, look = true },
+	style = "auto",     -- window style: auto (EllesmereUI's look when it runs), blizzard or dark
+	darkAlpha = 0.92,   -- background opacity of the Dark style
 	minimap = { shown = true, angle = 200 },
 	handed = {},
 	handedMinutes = 30,
@@ -718,6 +720,7 @@ local function Help()
 	ns.Print("/conjure fill sets the targets from your group.")
 	ns.Print("/conjure reset puts the window back in the middle of the screen.")
 	ns.Print("/conjure debug prints what Conjurer found on this client.")
+	ns.Print("/conjure style [auto, blizzard or dark] sets the window style; on its own, the next one.")
 	ns.Print("/conjure note <text> writes a line into the log; /reload saves the log to disk.")
 end
 
@@ -735,6 +738,16 @@ SlashCmdList["CONJURER"] = function(raw)
 		ns.Print("Noted. /reload writes the log to disk.")
 	elseif msg == "help" or msg == "?" then
 		Help()
+	elseif (msg == "style" or msg:sub(1, 6) == "style ") and ns.Styles then
+		local Styles = ns.Styles
+		local arg = msg:sub(7):gsub("^%s+", "")
+		if arg == "auto" or arg == "automatic" then Styles.Set("auto")
+		elseif arg == "blizzard" or arg == "dark" then Styles.Set(arg)
+		elseif arg == "" then Styles.Cycle(1)
+		else ns.Print("Styles: auto, blizzard, dark.") return end
+		ns.Print("Window style: " .. Styles.Name(ns.db.style) .. ". " .. Styles.Note())
+		ns.Log("window style: " .. Styles.Name(ns.db.style))
+		ns.Refresh()
 	elseif not ns.isMage then
 		ns.Print("Conjurer is for mages; this character can't conjure food or water.")
 	elseif msg == "ready" then

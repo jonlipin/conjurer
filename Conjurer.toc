@@ -2,10 +2,11 @@
 ## Title: Conjurer
 ## Notes: Mage food and water: conjure each rank to a target with hold to cast, trade shares by class to your party or raid, a one-button eat and drink macro, an alert when you run low, and a button that announces what you have to trade.|n|cff3fc7eb/conjure|r to open.
 ## Author: jonlipin
-## Version: 1.3.1
+## Version: 1.4.0
 ## LoadSavedVariablesFirst: 1
 ## SavedVariables: ConjurerLog
 ## SavedVariablesPerCharacter: ConjurerDB
+## OptionalDeps: EllesmereUI
 ## IconTexture: Interface\Icons\INV_Drink_18
 ## X-Category: Mage
 ## X-Website: https://github.com/jonlipin/conjurer
@@ -22,3 +23,5 @@ UI.lua
 Alert.lua
 Announce.lua
 Minimap.lua
+Styles.lua
+Conjurer_Skins.lua

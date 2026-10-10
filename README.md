@@ -31,6 +31,7 @@ A Blizzard-style window with the Ready bar at the top and sections you can fold 
   best conjured food at the same time.
 - **Quick access bar**: your water and food on screen, always or only when low, with the
   conjure, Ready, announce and settings buttons and a progress bar.
+- **Look**: the window style, Automatic, Blizzard or Dark (see below).
 - **Options**: the chime, drinking when out of mana, player tooltips, tidying your bags, hold to
   cast, the minimap button, and the debug report.
 
@@ -205,12 +206,25 @@ One click tells your group to trade you for food and water, with how much you ha
   once every 10 seconds, and only when you click it.
 - Right-click it for Conjurer's settings. Dragging it moves the whole bar.
 
+## Look
+
+The **Look** section picks the window style for the window and the quick access bar:
+
+- **Automatic** (the default): EllesmereUI's look when EllesmereUI is installed, otherwise Blizzard.
+- **Blizzard**: the interface's own window art.
+- **Dark**: a flat dark style built in, needing no other addon. **Dark background opacity** sets
+  how much of the world shows through it.
+
+Left-click the style button for the next style, right-click for the previous one. Switching away
+from a style that is already drawn takes a reload of the interface; Conjurer offers one.
+
 ## Commands
 
 - `/conjure` opens the window.
 - `/conjure ready` turns Ready on or off.
 - `/conjure fill` sets the targets from your group.
 - `/conjure reset` puts the window back in the middle of the screen.
+- `/conjure style` moves to the next window style; `/conjure style auto`, `blizzard` or `dark` picks one.
 - `/conjure debug` prints what Conjurer found on this client.
 - `/conjure note <text>` writes a line into the log.
 

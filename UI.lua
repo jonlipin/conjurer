@@ -42,12 +42,21 @@ local SECTIONS = {
 	{ key = "macro", title = "Eat and drink macro" },
 	{ key = "alert", title = "Quick access bar" },
 	{ key = "announce", title = "Announce button" },
+	{ key = "look", title = "Look" },
 	{ key = "options", title = "Options" },
 }
 local macroButton, macroText, macroStatus, macroMake
 local announceBox, announcePreview
 
 local function Guard(label, fn) return ns.Guard(label, fn) end
+
+-- Every button, checkbox and edit box the window makes, for the window styles (Conjurer_Skins.lua).
+UI.made = { buttons = {}, checks = {}, edits = {} }
+local function Made(kind, control)
+	local list = UI.made[kind]
+	list[#list + 1] = control
+	return control
+end
 
 local function Sound(id, fallback)
 	pcall(PlaySound, (SOUNDKIT and SOUNDKIT[id]) or fallback, "SFX")
@@ -93,7 +102,7 @@ local function NewButton(parent, text, width, height)
 	end
 	b:SetSize(width or 80, height or 22)
 	b:SetText(text or "")
-	return b
+	return Made("buttons", b)
 end
 
 local function NewCheck(parent, label, get, set, tip)
@@ -132,7 +141,7 @@ local function NewCheck(parent, label, get, set, tip)
 	end))
 	if tip then Tip(cb, label, tip) end
 	syncers[#syncers + 1] = function() cb:SetChecked(get() and true or false) end
-	return cb
+	return Made("checks", cb)
 end
 
 -- A slider with Blizzard's stepper arrows and the value on its right, as in the game's options.
@@ -299,16 +308,21 @@ local function CreateWindow()
 	title:SetText("Conjurer")
 
 	panel.portraitTexture = (panel.PortraitContainer and panel.PortraitContainer.portrait) or panel.portrait
-	if not panel.CloseButton then
-		local ok, close = pcall(CreateFrame, "Button", nil, panel, "UIPanelCloseButton")
-		if ok and close then
+	local close = panel.CloseButton
+	if not close then
+		local ok, made = pcall(CreateFrame, "Button", nil, panel, "UIPanelCloseButton")
+		if ok and made then
+			close = made
 			close:SetPoint("TOPRIGHT", 1, 1)
 		else
 			close = NewButton(panel, "x", 22, 22)
 			close:SetPoint("TOPRIGHT", -4, -4)
-			close:SetScript("OnClick", function() panel:Hide() end)
 		end
 	end
+	-- The game's own X calls HideUIPanel, which the client refuses in combat for an addon's window
+	-- ("Interface action blocked"), so the X hides the window itself. OnHide still runs.
+	panel.closeButton = close
+	close:SetScript("OnClick", function() panel:Hide() end)
 
 	-- The inset, lowered to leave room for the Ready bar.
 	local inset = panel.Inset
@@ -360,7 +374,7 @@ local function DressIcon(button, size)
 	icon:SetAllPoints()
 	button.icon = icon
 	-- The mask art is 64 wide for a 45 wide icon: most of it is margin. Blizzard leaves it at that
-	-- size, centred on the icon, so only the icon's corners are rounded off. Fitted to the icon it
+	-- size, centered on the icon, so only the icon's corners are rounded off. Fitted to the icon it
 	-- shrinks the picture to two thirds and leaves a dark ring inside the frame.
 	if ns.HasAtlas("UI-HUD-ActionBar-IconFrame-Mask") and button.CreateMaskTexture then
 		local mask = button:CreateMaskTexture()
@@ -386,6 +400,7 @@ local function DressIcon(button, size)
 		hl:SetPoint("TOPLEFT")
 		hl:SetSize(w, size)
 		hl:SetBlendMode("ADD")
+		button.iconBorder, button.iconPushed, button.iconHighlight = border, pushed, hl
 		report["icon button art"] = "action bar button"
 	else
 		local hl = button:CreateTexture(nil, "HIGHLIGHT")
@@ -542,10 +557,10 @@ local function BuildSkillBar(bar, s)
 		flare:SetPoint("RIGHT", mask, "RIGHT")
 		flare:AddMaskTexture(mask)
 	end
-	ThreeSlice(bar, 1, art.bg, s)
-	local frameStyle = ThreeSlice(bar, 4, art.frame, s)
+	local _, bgPieces = ThreeSlice(bar, 1, art.bg, s)
+	local frameStyle, framePieces = ThreeSlice(bar, 4, art.frame, s)
 	anim:Play()
-	return { fill = fill, anim = anim, mask = mask, flare = flare,
+	return { fill = fill, anim = anim, mask = mask, flare = flare, pieces = { bgPieces, framePieces },
 		art = "skill bar (" .. art.fill .. ", frame in " .. frameStyle .. ")" }
 end
 
@@ -559,6 +574,7 @@ local function NewProgress(parent, name, width, height)
 	local top = bar
 	if skill then
 		bar.fill, bar.anim, bar.mask, bar.flare, bar.art = skill.fill, skill.anim, skill.mask, skill.flare, skill.art
+		bar.artPieces, bar.scale = skill.pieces, s
 	else
 		local status = CreateFrame("StatusBar", nil, bar)
 		status:SetAllPoints()
@@ -712,7 +728,7 @@ local function PaintReady(b)
 		b.glow:Hide()
 		b:UnlockHighlight()
 	end
-	-- Play while there is something to start (greyed when there isn't), stop while lit.
+	-- Play while there is something to start (grayed when there isn't), stop while lit.
 	local canStart = ns.isMage and C.CurrentRow() ~= nil
 	b.play:SetShown(not C.armed and b.playArt ~= nil)
 	b.play:SetDesaturated(not canStart)
@@ -954,6 +970,11 @@ local SUMMARY = {
 	macro = function() return ns.Macro.Summary() end,
 	alert = function() return ns.Alert.Summary() end,
 	announce = function() return ns.Announce.Summary() end,
+	look = function()
+		local Styles = ns.Styles
+		if not Styles then return "" end
+		return "window style " .. Styles.Name(ns.db.style) .. ", in use: " .. Styles.Name(Styles.Applied() or "blizzard")
+	end,
 	options = function()
 		return "Press and Hold Casting " .. (ns.Conjure.HoldReady() and "on" or "off")
 	end,
@@ -1273,6 +1294,8 @@ local function MemberRow(body, i)
 	row.button:SetScript("OnClick", Guard("group Trade button", function()
 		if row.member then ns.Trade.Request(row.member, row.full) end
 	end))
+	-- Made as the group grows, so each one is restyled as it is made.
+	if ns.SkinMemberRow then ns.SkinMemberRow(row) end
 	memberRows[i] = row
 	return row
 end
@@ -1309,7 +1332,7 @@ local function RefreshGroup(body)
 		row.name:SetText("|c" .. ns.ClassHex(m.class) .. m.name .. "|r  |cff9d9d9d" .. (m.level or "??") .. "|r")
 		row.share:SetText(ns.Trade.ShareText(m))
 		local text, tone, action = ns.Trade.Status(m)
-		local c = ns.Trade.COLORS[tone] or ns.Trade.COLORS.grey
+		local c = ns.Trade.COLORS[tone] or ns.Trade.COLORS.gray
 		row.status:SetText(text)
 		row.status:SetTextColor(c[1], c[2], c[3])
 		row.full = action == "Again"
@@ -1522,7 +1545,7 @@ local function NewEditBox(parent, width)
 	box:SetSize(width, 20)
 	box:SetAutoFocus(false)
 	if box.SetMaxLetters then box:SetMaxLetters(255) end
-	return box
+	return Made("edits", box)
 end
 
 local function BuildAnnounce(body)
@@ -1593,6 +1616,68 @@ local function RefreshAnnounce()
 	else
 		announcePreview:SetText("Not in a group now. It would say: |cffffffff" .. text .. "|r")
 	end
+end
+
+-- The window style: the game's own art, a flat Dark style, or EllesmereUI's look when it is
+-- installed (Styles.lua does the choosing and the drawing). Leaving a style once it is drawn takes
+-- a reload, which the style button's note says.
+local function BuildLook(body)
+	local y = 6
+	local styleButton = NewButton(body, "Window style", 200, 22)
+	styleButton:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -y)
+	styleButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	styleButton:SetScript("OnClick", Guard("window style", function(_, which)
+		if not ns.Styles then return end
+		ns.Styles.Cycle(which == "RightButton" and -1 or 1)
+		ns.Log("window style: " .. ns.Styles.Name(ns.db.style))
+		UI.Refresh()
+	end))
+	styleButton:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Window style", 1, 1, 1)
+		for _, line in ipairs(ns.Styles and ns.Styles.HELP or {}) do GameTooltip:AddLine(line, nil, nil, nil, true) end
+		GameTooltip:AddLine("Left-click for the next style, right-click for the previous one.", 0.6, 0.6, 0.6, true)
+		GameTooltip:Show()
+	end)
+	styleButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	local note = Text(body, "GameFontDisableSmall")
+	note:SetPoint("TOPLEFT", body, "TOPLEFT", 14, -y - 28)
+	note:SetWidth(540)
+	y = y + 46
+	-- How much of the world shows through Dark's windows; grayed for the other styles.
+	local label = Text(body, "GameFontHighlight")
+	label:SetPoint("TOPLEFT", body, "TOPLEFT", 38, -y - 4)
+	label:SetText("Dark background opacity (%)")
+	local opacity = NewSlider(body, 178, 0, 100, 5, function(v)
+		ns.db.darkAlpha = v / 100
+		if ns.Styles then ns.Styles.SetDarkAlpha(ns.db.darkAlpha) end
+	end)
+	opacity:SetPoint("TOPLEFT", body, "TOPLEFT", 236, -y)
+	local function OpacityTip(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Dark background opacity", 1, 1, 1)
+		GameTooltip:AddLine("How much of the world shows through the Dark style's windows.", nil, nil, nil, true)
+		if ns.db.style ~= "dark" then GameTooltip:AddLine("Applies to the Dark style only.", 1, 0.82, 0, true) end
+		GameTooltip:Show()
+	end
+	for _, region in ipairs({ opacity, opacity.Slider }) do
+		region:HookScript("OnEnter", OpacityTip)
+		region:HookScript("OnLeave", function() GameTooltip:Hide() end)
+	end
+	syncers[#syncers + 1] = function()
+		local Styles = ns.Styles
+		if not Styles then return end
+		styleButton:SetText("Window style: " .. Styles.Name(ns.db.style))
+		note:SetText(Styles.Note())
+		local dark = ns.db.style == "dark"
+		opacity:SetActive(dark)
+		opacity:SetAlpha(dark and 1 or 0.5)
+		label:SetFontObject(dark and GameFontHighlight or GameFontDisable)
+		opacity:Set(math.floor((tonumber(ns.db.darkAlpha) or 0.92) * 100 + 0.5))
+	end
+	body.styleButton, body.note, body.opacity, body.opacityLabel = styleButton, note, opacity, label
+	y = y + ROW_H
+	body:SetHeight(y + 4)
 end
 
 local settingsState, settingsButton
@@ -1821,6 +1906,7 @@ local function RefreshTabs()
 			end
 		end
 	end
+	if ns.SkinTabSelection then ns.SkinTabSelection(tabs, index) end
 	-- And the box's border above every tab, so their tops rest under it.
 	if targetsBox and targetsBox.NineSlice then
 		local top = 0
@@ -1889,6 +1975,7 @@ local function Build()
 	BuildMacro(sections.macro.body)
 	BuildAlert(sections.alert.body)
 	BuildAnnounce(sections.announce.body)
+	BuildLook(sections.look.body)
 	BuildOptions(sections.options.body)
 
 	-- Header buttons: they sit left of the header's own +/- art.
@@ -1924,7 +2011,7 @@ local function Build()
 		macroStatus = macroStatus, macroMake = macroMake,
 		settingsState = settingsState, settingsButton = settingsButton, tabs = tabs, tabStrip = tabStrip,
 		targetsBox = targetsBox, gemRows = gemRows,
-		announceBox = announceBox, announcePreview = announcePreview,
+		announceBox = announceBox, announcePreview = announcePreview, scroll = scroll,
 	}
 	local used = {}
 	for _, key in ipairs({ "window template", "slider template", "check template", "button template", "scroll frame",
@@ -1945,6 +2032,8 @@ local function Build()
 		if ticker then ticker:Cancel() ticker = nil end
 		if capturing and UI.EndCapture then UI.EndCapture() end
 	end)
+	-- Built on first open, which is usually after the window style was chosen at login.
+	if ns.SkinWindow then ns.SkinWindow() end
 	ns.Stage("idle")
 end
 
@@ -1981,9 +2070,9 @@ function UI.Layout()
 		if s.header.Right then
 			s.header.Right:SetAtlas(collapsed and ART.right or ART.open, true)
 			s.header.HighlightRight:SetAtlas(collapsed and ART.right or ART.open, true)
-		elseif s.header.Sign then
-			s.header.Sign:SetText(collapsed and "+" or "-")
 		end
+		-- The plain bars have a sign, and so do the headers a window style redraws.
+		if s.header.Sign then s.header.Sign:SetText(collapsed and "+" or "-") end
 		s.header.Summary:SetText(collapsed and SUMMARY[def.key]() or "")
 		if s.action then s.action:SetShown(not collapsed) end
 		if s.extras then

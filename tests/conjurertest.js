@@ -16,7 +16,8 @@ const { lua, lauxlib, lualib, to_luastring } = require('fengari');
 let DIR = process.argv.slice(2).find(a => !a.startsWith('--')) || path.resolve(__dirname, '..');
 DIR = DIR.replace(/\\/g, '/');
 if (!DIR.endsWith('/')) DIR += '/';
-const files = ['Core.lua', 'Bags.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'Click.lua', 'UI.lua', 'Alert.lua', 'Announce.lua', 'Minimap.lua'];
+const files = ['Core.lua', 'Bags.lua', 'Conjure.lua', 'Trade.lua', 'Macro.lua', 'Click.lua', 'UI.lua', 'Alert.lua', 'Announce.lua', 'Minimap.lua',
+  'Styles.lua', 'Conjurer_Skins.lua'];
 
 const stub = String.raw`
 local unpack = unpack or table.unpack
@@ -110,11 +111,21 @@ M.SetAlpha = function(s, a) s.alpha = a end
 M.GetAlpha = function(s) return s.alpha or 1 end
 M.SetFontString = function(s, f) s.fontString = f end
 M.CreateTexture = function(s, name, layer)
-  local t = obj("texture") t.parent = s t.layer = layer TEXTURES[#TEXTURES + 1] = t return t
+  local t = obj("texture") t.parent = s t.layer = layer TEXTURES[#TEXTURES + 1] = t s.regions[#s.regions + 1] = t return t
 end
 M.CreateMaskTexture = function(s) local t = obj("mask") t.parent = s return t end
-M.AddMaskTexture = function(s, m) s.mask = m end
-M.CreateFontString = function(s, name, layer, font) local t = obj("fontstring") t.parent = s t.font = font return t end
+M.AddMaskTexture = function(s, m) s.mask = m s.masks[#s.masks + 1] = m end
+M.RemoveMaskTexture = function(s, m) for i, x in ipairs(s.masks) do if x == m then table.remove(s.masks, i) end end if s.mask == m then s.mask = nil end end
+M.GetNumMaskTextures = function(s) return #s.masks end
+M.CreateFontString = function(s, name, layer, font) local t = obj("fontstring") t.parent = s t.font = font s.regions[#s.regions + 1] = t return t end
+M.SetFontObject = function(s, f) s.font = f end
+-- What the window styles walk: a frame's own textures and font strings.
+M.GetRegions = function(s) return unpack(s.regions) end
+M.IsObjectType = function(s, k)
+  if k == "Texture" then return s.kind == "texture" end
+  if k == "FontString" then return s.kind == "fontstring" end
+  return s.kind == k
+end
 M.CreateAnimationGroup = function(s) local g = obj("animgroup") g.parent = s g.anims = {} return g end
 M.CreateAnimation = function(s, kind)
   if BAD_FLIPBOOK and kind == "FlipBook" then error("no FlipBook animations") end
@@ -128,7 +139,7 @@ M.Cancel = function(s) s.cancelled = true end
 
 obj = function(kind, template, name)
   local o = { kind = kind, template = template, name = name, shown = true, scripts = {}, points = {}, attributes = {},
-    events = {}, kids = {}, w = 0, h = 0, enabled = true }
+    events = {}, kids = {}, regions = {}, masks = {}, w = 0, h = 0, enabled = true }
   return setmetatable(o, { __index = function(t, k)
     local m = M[k]
     if m then return m end
@@ -173,11 +184,16 @@ function CreateFrame(kind, name, parent, template)
     f.NineSlice = obj("Frame")
     f.TitleContainer = { TitleText = obj("fontstring") }
     f.PortraitContainer = { portrait = obj("texture") }
-    f.CloseButton = obj("Button")
-    if template == "ButtonFrameTemplate" then f.Inset = obj("Frame") f.Inset.parent = f end
+    -- The template's X, with the game's own click (not one of the window's children here, so the
+    -- frame level checks below still see it apart).
+    f.CloseButton = obj("Button", "UIPanelCloseButton")
+    f.CloseButton.parent = f
+    f.CloseButton.scripts.OnClick = function(self) UIPanelCloseButton_OnClick(self) end
+    if template == "ButtonFrameTemplate" then f.Inset = obj("Frame") f.Inset.parent = f f.kids[#f.kids + 1] = f.Inset end
     f.SetPortraitToAsset = function(s, icon) s.PortraitContainer.portrait.texture = icon end
   end
   if template == "UIPanelButtonTemplate" then f.fontString = obj("fontstring") end
+  if template == "UIPanelCloseButton" then f.scripts.OnClick = function(self) UIPanelCloseButton_OnClick(self) end end
   if template == "CooldownFrameTemplate" then f.SetCooldown = function(s, start, duration) s.cd = { start, duration } end end
   if template == "InsetFrameTemplate" then f.NineSlice = obj("Frame") f.Bg = obj("texture") end
   if template == "DefaultPanelFlatTemplate" or template == "DefaultPanelTemplate" then
@@ -252,8 +268,9 @@ function GetBuildInfo() return "1.60.1", "70009" end
 function debugstack() return "[string \"@Conjurer\\Conjure.lua\"]:1: in function <x>\n" end
 function issecretvalue(v) return SECRETS and SECRETS[v] or false end
 ERR_TRADE_COMPLETE = "Trade complete."
--- The outlined fonts the client defines.
+-- The outlined fonts the client defines, and the font objects the options switch between.
 GameFontHighlightOutline, GameFontHighlightSmallOutline = {}, {}
+GameFontHighlight, GameFontDisable = "GameFontHighlight", "GameFontDisable"
 NUM_BAG_SLOTS = 4
 RAID_CLASS_COLORS = { MAGE = { r = 0.25, g = 0.78, b = 0.92 }, PRIEST = { r = 1, g = 1, b = 1 }, WARRIOR = { r = 0.78, g = 0.61, b = 0.43 },
   HUNTER = { r = 0.67, g = 0.83, b = 0.45 }, WARLOCK = { r = 0.53, g = 0.53, b = 0.93 } }
@@ -451,6 +468,17 @@ function EnterCombatLockdown()
   end
 end
 function InCombatLockdown() return COMBAT == true end
+-- The game's panel functions refuse an addon in combat ("Interface action blocked"); the X's own
+-- click goes through them (SharedUIPanelTemplates.lua).
+BLOCKED = 0
+function HideUIPanel(f) if InCombatLockdown() then BLOCKED = BLOCKED + 1 return end if f then f:Hide() end end
+function ShowUIPanel(f) if InCombatLockdown() then BLOCKED = BLOCKED + 1 return end if f then f:Show() end end
+function UIPanelCloseButton_OnClick(self)
+  local parent = self:GetParent()
+  if parent then
+    if parent.onCloseCallback then parent.onCloseCallback(self) else HideUIPanel(parent) end
+  end
+end
 function UnitCastingInfo(unit) if unit == "player" and CASTING then return "Conjure" end end
 
 -- Settings
@@ -731,6 +759,57 @@ function Click(button, which)
   RunTimers(0)
 end
 
+-- ---- The window styles ----
+-- Dark's backdrop: its gradient needs CreateColor, which this stub lacks, so Dark paints its flat
+-- stand-in, a near-black with the opacity as its alpha.
+function DarkBackdrop(f)
+  for _, r in ipairs(f and f.regions or {}) do
+    local c = r.colorTexture
+    if c and c[1] == 0.05 and c[2] == 0.05 and c[3] == 0.06 then return r end
+  end
+end
+function AnyDarkBackdrop() for _, f in ipairs(FRAMES) do if DarkBackdrop(f) then return f end end end
+-- A texture of this color on the frame: Dark's button face is 0.13, its checkbox 0.02, its field 0.
+function HasColor(f, r, g, b)
+  for _, t in ipairs(f and f.regions or {}) do
+    local c = t.colorTexture
+    if c and math.abs(c[1] - r) < 1e-6 and math.abs(c[2] - g) < 1e-6 and math.abs(c[3] - b) < 1e-6 then return t end
+  end
+end
+function SkinErrors(report)
+  local list = {}
+  for k, v in pairs(report) do if k:find("skin error", 1, true) then list[#list + 1] = k .. ": " .. tostring(v) end end
+  return #list, table.concat(list, "; ")
+end
+-- EllesmereUI's skinning facade, version 3, as a stand-in: every name it has records its calls,
+-- and any other name raises, so the restyle can only use what the real facade offers.
+FACADE_NAMES = { "Shell", "Panel", "Inset", "FadeRegions", "FadeNineSlice", "Button", "WhiteButtonLabel", "StateButtonLabel",
+  "EditBox", "Checkbox", "Dropdown", "ScrollBar", "Tab", "SetTabSelection", "CloseButton", "PageButton", "SquareIcon",
+  "SortHeaderBar", "Font", "White", "ApplyBarFill" }
+function StandInEllesmereUI()
+  DONE = setmetatable({}, { __mode = "k" })
+  TAB_SELECTED = setmetatable({}, { __mode = "k" })
+  local S = { apiVersion = 3, GetStyle = function() return "eui" end, IsEnabled = function() return true end,
+    GetAccentColor = function() return 0.05, 0.82, 0.62 end, GetPanelColor = function() return 0.05, 0.05, 0.05, 0.9 end,
+    GetFont = function() return "Fonts\\eui.ttf", "" end, OnLooksChanged = function() end }
+  for _, n in ipairs(FACADE_NAMES) do
+    S[n] = function(f) if type(f) == "table" then DONE[f] = (DONE[f] or "") .. n .. "," end end
+  end
+  local shell = S.Shell
+  -- Its window border is a frame of its own, 6 levels above the window.
+  S.Shell = function(f, opts)
+    shell(f)
+    local b = CreateFrame("Frame", nil, f)
+    b.euiBorder = true
+    b:SetFrameLevel((f:GetFrameLevel() or 1) + 6)
+  end
+  local select = S.SetTabSelection
+  S.SetTabSelection = function(tab, on) select(tab) TAB_SELECTED[tab] = on end
+  EUI_S = setmetatable(S, { __index = function(_, k) error("not in EllesmereUI's facade: " .. tostring(k)) end })
+  EllesmereUI = { RegisterSkin = function(name, fn) EUI_REG = name EUI_FN = fn end, _DispatchSkinRegistration = function() end }
+end
+function Did(f, what) return f ~= nil and DONE ~= nil and (DONE[f] or ""):find(what .. ",", 1, true) ~= nil end
+
 -- A hold, the way the client behaved in the first in-game test (log of 2026-09-28): the key goes
 -- down and the game casts what the button holds. Just before each cast ends it queues the next
 -- repeat of that same spell, if the button still holds it; once the button holds something else
@@ -911,8 +990,23 @@ check("the round portrait shows Conjure Water", ConjurerFrame.PortraitContainer.
 check("Escape closes it", UISpecialFrames[1] == "ConjurerFrame")
 check("the inset is lowered for the Ready bar and the progress bar", ConjurerFrame.Inset.points[1][5] == -109)
 check("it opened with the spellbook's sound", Played(829))
+-- Its X: the game's own click calls HideUIPanel, refused in combat, so the X hides it itself.
+do
+  local X = ConjurerFrame.closeButton or ConjurerFrame.CloseButton
+  local blocked = BLOCKED
+  PLAYED = {}
+  X.scripts.OnClick(X, "LeftButton")
+  check("its X closes it, with the spellbook's closing sound", not ConjurerFrame.shown and Played(830) and BLOCKED == blocked)
+  UI.Show() RunTimers(0)
+  COMBAT = true
+  X.scripts.OnClick(X, "LeftButton")
+  COMBAT = false
+  check("in combat its X still closes it, nothing refused", not ConjurerFrame.shown and BLOCKED == blocked, BLOCKED - blocked)
+  UI.Show() RunTimers(0)
+  check("and it opens again", ConjurerFrame.shown)
+end
 check("seven sections", #P.content.kids >= 14 and P.sections.macro ~= nil and P.sections.alert ~= nil)
-check("the icon's rounded mask is Blizzard's size, centred, so the icon fills the frame",
+check("the icon's rounded mask is Blizzard's size, centered, so the icon fills the frame",
   P.readyButton.iconMask and math.abs(P.readyButton.iconMask.w - 42 * 64 / 45) < 0.01 and P.readyButton.iconMask.points[1][1] == "CENTER")
 check("a play button sits over the Ready icon", P.readyButton.play.shown and P.readyButton.play.atlas == "charactercreate-customize-playbutton"
   and not P.readyButton.stop.shown and not P.readyButton.playText.shown)
@@ -923,6 +1017,13 @@ check("the others start open", P.sections.water.body.shown and P.sections.food.b
 check("the scroll frame is the MinimalScrollBar one", ns.report["scroll frame"] == "ScrollFrameTemplate with MinimalScrollBar")
 check("sliders are Blizzard's stepper sliders", ns.report["slider template"] == "MinimalSliderWithSteppersTemplate")
 check("the Ready glow is the spell alert flipbook", ns.report["ready glow"] == "spell alert flipbook")
+-- The window style: Automatic, which without EllesmereUI is the game's own art. Nothing is drawn.
+check("the window style starts on Automatic, opacity 92%", ns.db.style == "auto" and ns.db.darkAlpha == 0.92)
+check("Automatic without EllesmereUI is Blizzard, and the debug report says why", ns.report.skin == "Blizzard (EllesmereUI is not loaded)", ns.report.skin)
+check("nothing is drawn: no Dark backdrop anywhere", ns.Styles.Applied() == nil and ns.Styles.S == nil and AnyDarkBackdrop() == nil)
+check("the Look section sits above Options, closed to start", P.sections.look and P.sections.look.body.shown == false
+  and P.sections.look.header.points[1][5] > P.sections.options.header.points[1][5])
+check("the Ready button keeps its place by the portrait", P.readyButton.points[1][4] == 72)
 
 local waterRows = P.rankRows.water
 check("seven water rows, best rank first", #waterRows == 7 and waterRows[1].entry.rank == 7 and waterRows[7].entry.rank == 1)
@@ -1015,7 +1116,7 @@ check("the debug report says so", reportText:find("hold to cast: works (4 casts 
 Click(P.readyButton)
 check("with every target met Ready stays off", C.armed == false and ChatWith("Nothing to conjure") == 1)
 check("the bar says so", P.readyTitle.text == "Nothing to conjure")
-check("and the play button greys out", P.readyButton.play.shown and P.readyButton.play.desaturated == true and P.readyButton.play.alpha < 1)
+check("and the play button grays out", P.readyButton.play.shown and P.readyButton.play.desaturated == true and P.readyButton.play.alpha < 1)
 
 -- Short hold, let go early, hold again.
 local base = C_Item.GetItemCount(8079)
@@ -1192,7 +1293,7 @@ if not BARE then
   EnterCombatLockdown() fire("PLAYER_REGEN_DISABLED") RunTimers(0)
   before = #CLICK_CASTS
   Click(CB)
-  check("in combat a click casts nothing and the button greys out", #CLICK_CASTS == before and CB.icon.desaturated
+  check("in combat a click casts nothing and the button grays out", #CLICK_CASTS == before and CB.icon.desaturated
     and Logged("click in combat: nothing"))
   COMBAT = false fire("PLAYER_REGEN_ENABLED") RunTimers(0)
   check("out of combat it's back", not CB.icon.desaturated and CB.attributes.spell == 10140)
@@ -1798,7 +1899,7 @@ check("a refused split leaves nothing on the cursor", CURSOR == nil and TRADE[1]
 REFUSE_SPLIT_TO_TRADE = false
 TradeCancel()
 
--- No "trade complete" text recognised: the bags decide.
+-- No "trade complete" text recognized: the bags decide.
 ClearBags()
 AddItems(22895, 40)
 ns.db.handed["Player-70-B3"] = nil
@@ -2425,11 +2526,51 @@ RunTimers(0)
 check("and puts it out, light and pulse", not C.armed and not ConjurerMinimapButton.lit.shown and not ConjurerMinimapButton.pulse.playing)
 ConjurerMinimapButton.scripts.OnClick(ConjurerMinimapButton, "LeftButton")
 check("left click closes the window", ConjurerFrame.shown == false)
+
+-- A minimap button collector (EllesmereUI's, for one) takes the button off the minimap. Neither a
+-- refresh nor a drag tick may put it back on the rim then; on the minimap a drag still moves it.
+do
+  local mm = ConjurerMinimapButton
+  local function Script(f, e) return f.scripts[e] end
+  local holder = CreateFrame("Frame", nil, UIParent)
+  local own, setPoint = rawget(mm, "SetPoint"), mm.SetPoint
+  local moves, rel = 0, nil
+  rawset(mm, "SetPoint", function(self, ...) moves = moves + 1 rel = select(2, ...) return setPoint(self, ...) end)
+  local center, escale, cursor = rawget(Minimap, "GetCenter"), rawget(Minimap, "GetEffectiveScale"), GetCursorPosition
+  rawset(Minimap, "GetCenter", function() return 500, 500 end)
+  rawset(Minimap, "GetEffectiveScale", function() return 1 end)
+  GetCursorPosition = function() return 600, 560 end
+  -- The game has both: a degree based global atan2 and the radian based math.atan2.
+  local atan2Was, mathAtan2Was = atan2, math.atan2
+  atan2 = atan2 or function(y, x) return math.deg(math.atan(y, x)) end
+  math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+  local function Drag()
+    local start, stop = Script(mm, "OnDragStart"), Script(mm, "OnDragStop")
+    if not start then return false end
+    start(mm)
+    local tick = Script(mm, "OnUpdate")
+    if tick then tick(mm, 0.02) end
+    if stop then stop(mm) end
+    return tick ~= nil
+  end
+  mm:SetParent(holder)
+  Drag()
+  ns.Minimap.Apply() ns.Minimap.Refresh()
+  check("minimap: a button a collector (EllesmereUI's) has taken stays where the collector put it", moves == 0, moves)
+  mm:SetParent(Minimap)
+  local dragged = Drag()
+  check("minimap: on the minimap a drag still moves it round the rim", dragged and moves > 0 and rel == Minimap, moves)
+  rawset(mm, "SetPoint", own)
+  rawset(Minimap, "GetCenter", center)
+  rawset(Minimap, "GetEffectiveScale", escale)
+  GetCursorPosition = cursor
+  atan2, math.atan2 = atan2Was, mathAtan2Was
+end
 SlashCmdList.CONJURER("ready")
 check("/conjure ready works too", C.armed)
 SlashCmdList.CONJURER("ready")
 SlashCmdList.CONJURER("debug")
-check("/conjure debug prints the report", ChatWith("Conjurer 1.3.1 debug report") == 1 and ChatWith("refused actions: none") == 1)
+check("/conjure debug prints the report", ChatWith("Conjurer 1.4.0 debug report") == 1 and ChatWith("refused actions: none") == 1)
 check("the report names the borrowed button", ChatWith("button to borrow: Action Bar") == 1)
 check("nothing was refused in the whole run", #ns.refused == 0)
 fire("ADDON_ACTION_FORBIDDEN", "Conjurer", "UNKNOWN()")
@@ -2492,7 +2633,7 @@ check("set to in combat, it hides out of combat", ns.db.alert.when == "in" and n
 check("and the three boxes act as one choice", P.sections.alert.body.when["in"].checked and not P.sections.alert.body.when.out.checked)
 fire("PLAYER_REGEN_DISABLED") RunTimers(0)
 check("and shows in combat", ConjurerAlert.shown)
-check("where its play button greys out, since conjuring can't start in a fight", ConjurerAlertPlay.alpha == 0.5 and ConjurerAlertPlay.icon.desaturated == true)
+check("where its play button grays out, since conjuring can't start in a fight", ConjurerAlertPlay.alpha == 0.5 and ConjurerAlertPlay.icon.desaturated == true)
 fire("PLAYER_REGEN_ENABLED") RunTimers(0)
 Click(P.sections.alert.body.when.always)
 check("set to in and out of combat, it shows out of combat", ns.db.alert.when == "always" and ConjurerAlert.shown)
@@ -2706,7 +2847,7 @@ local sentText = SENT[#SENT] and SENT[#SENT].text or ""
 check("the items go out as links people can shift-click", #SENT == before + 1
   and sentText:find("45 |cffffffff|Hitem:8079::::::::60:::::|h[Conjured Crystal Water]|h|r (55+)", 1, true) ~= nil, sentText)
 fire("CHAT_MSG_SAY", (sentText:gsub("::::::::60:::::", ":0:0:0:0:0:0:0:60")), "Vatik") RunTimers(0)
-check("and it is still recognised in the chat when the links come back a little different",
+check("and it is still recognized in the chat when the links come back a little different",
   select(2, table.concat(ConjurerLog.entries, "\n"):gsub("announce seen in chat %(CHAT_MSG_SAY%)", "")) == 2)
 ns.db.announce.message = string.rep("a", 200) .. " {stock}"
 check("too long with links, it goes with plain names", An.Message() == string.rep("a", 200) .. " 45 Crystal Water (55+)", An.Message())
@@ -2836,7 +2977,7 @@ local L = ConjurerLog
 local all = table.concat(L.entries, "\n")
 check("the log is an account-wide saved variable", type(L) == "table" and type(L.entries) == "table" and L.session == 1)
 check("lines carry the session and the time", L.entries[1]:match("^#1 %d%d:%d%d:%d%d ") ~= nil, L.entries[1])
-check("it starts with the session", all:find("session start: Conjurer 1.3.1, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
+check("it starts with the session", all:find("session start: Conjurer 1.4.0, client 1.60.1.70009, Vatik MAGE 60", 1, true) ~= nil)
 check("it has the window's templates", all:find("window built: window template ButtonFrameTemplate", 1, true) ~= nil)
 check("it has Ready being lit", all:find("Ready is lit; hold to cast on", 1, true) ~= nil)
 check("it has the binding", all:find("bind F -> MULTIACTIONBAR7BUTTON12", 1, true) ~= nil)
@@ -3006,6 +3147,196 @@ const scenarios = [
     end
     check("and the progress bar is plain, not every frame of the sheet at once", ConjurerProgress.art == "plain" and sheets == 0, sheets)
   ` },
+  { label: 'window style: from Blizzard to Dark and back', code: String.raw`
+    -- Styles.lua's reload prompt makes its buttons from UIPanelButtonTemplate with no stand-in; every
+    -- client has that template, so the bare run keeps it in the window style scenarios.
+    if BARE then BAD_TEMPLATES.UIPanelButtonTemplate = nil end
+    -- The window and the quick access bar are both built while Blizzard is drawn.
+    local ns = Login()
+    KnowAll() fire("SPELLS_CHANGED") RunTimers(0)
+    fire("PLAYER_ENTERING_WORLD") RunTimers(0)
+    SlashCmdList.CONJURER("") RunTimers(0)
+    local P = ns.UI.parts
+    check("Blizzard: the window and the bar are up, nothing drawn", ConjurerFrame.shown and ConjurerAlert and ConjurerAlert.shown
+      and ns.Styles.Applied() == nil and AnyDarkBackdrop() == nil)
+    Click(P.sections.look.header)
+    local L = P.sections.look.body
+    check("the Look section opens", L.shown and L.styleButton.text == "Window style: Automatic", L.styleButton.text)
+    check("with the note under the style", L.note.text == "In use: Blizzard (EllesmereUI is not loaded).", L.note.text)
+    check("the opacity slider is grayed for Automatic", L.opacity.alpha == 0.5 and L.opacityLabel.font == "GameFontDisable")
+    TIP_LINES = {}
+    L.styleButton.scripts.OnEnter(L.styleButton)
+    check("the style button's tooltip has the three styles and the clicks", #TIP_LINES == 4 and TIP_LINES[1]:find("^Automatic")
+      and TIP_LINES[3]:find("^Dark") and TIP_LINES[4]:find("right%-click"))
+    TIP_LINES = {}
+    L.opacity.Slider.scripts.OnEnter(L.opacity.Slider)
+    check("the slider's tooltip says it is for Dark only", TIP_LINES[2] == "Applies to the Dark style only.")
+
+    Click(L.styleButton, "RightButton")
+    check("right-click goes back a style, Automatic to Dark, drawn at once", ns.db.style == "dark" and ns.Styles.Applied() == "dark"
+      and ns.report.skin == "Dark", ns.report.skin)
+    check("with no reload asked", not (ConjurerReloadPrompt and ConjurerReloadPrompt.shown))
+    check("the window built before is drawn", DarkBackdrop(ConjurerFrame) ~= nil and HasColor(P.keyButton, 0.13, 0.13, 0.145) ~= nil)
+    check("and so is the quick access bar built before", DarkBackdrop(ConjurerAlertBorder) ~= nil
+      and ConjurerAlertWater.icon.texCoord and ConjurerAlertWater.icon.texCoord[1] == 0.08)
+    check("the headers get their signs", P.sections.water.header.Sign and P.sections.water.header.Sign.text == "-"
+      and P.sections.options.header.Sign.text == "+")
+    check("the slider is live for Dark", L.opacity.alpha == 1 and L.opacityLabel.font == "GameFontHighlight")
+    Click(L.styleButton)
+    check("left-click moves on to Automatic", ns.db.style == "auto")
+    check("leaving a drawn style asks for a reload", ConjurerReloadPrompt and ConjurerReloadPrompt.shown
+      and ConjurerReloadPrompt.text.text:find("takes a reload", 1, true) ~= nil)
+    check("the note says so, and the debug report", L.note.text:find("/reload", 1, true) ~= nil
+      and ns.report.skin == "Dark, Blizzard after a /reload", ns.report.skin)
+    check("the slider is grayed again", L.opacity.alpha == 0.5)
+    Click(P.sections.look.header)
+    check("closed, the section sums it up", P.sections.look.header.Summary.text == "window style Automatic, in use: Dark",
+      P.sections.look.header.Summary.text)
+    SlashCmdList.CONJURER("style dark") RunTimers(0)
+    check("/conjure style dark comes back to what is drawn, and the prompt goes", ns.db.style == "dark" and not ConjurerReloadPrompt.shown)
+    check("it prints the style and the note", ChatWith("Window style: Dark. In use: Dark.") == 1)
+    SlashCmdList.CONJURER("style blizzard") RunTimers(0)
+    check("/conjure style blizzard", ns.db.style == "blizzard" and ConjurerReloadPrompt.shown)
+    SlashCmdList.CONJURER("style pink") RunTimers(0)
+    check("an unknown style lists them", ChatWith("Styles: auto, blizzard, dark.") == 1)
+    SlashCmdList.CONJURER("debug") RunTimers(0)
+    check("/conjure debug has the skin line", ChatWith("skin: Dark, Blizzard after a /reload") == 1)
+    check("the log has the style changes", table.concat(ConjurerLog.entries, "\n"):find("window style: Blizzard", 1, true) ~= nil)
+    local n, list = SkinErrors(ns.report)
+    check("no skin errors", n == 0, list)
+  ` },
+  { label: 'window style: Dark', code: String.raw`
+    if BARE then BAD_TEMPLATES.UIPanelButtonTemplate = nil end
+    -- Chosen before login: drawn once the world is up, before the window or the bar is built.
+    ConjurerDB = { style = "dark", darkAlpha = 0.8 }
+    local ns = Login()
+    fire("PLAYER_ENTERING_WORLD") RunTimers(0)
+    check("Dark is drawn once the world is up", ns.Styles.Applied() == "dark" and ns.Styles.S == ns.Styles.Dark and ns.report.skin == "Dark", ns.report.skin)
+    KnowAll() fire("SPELLS_CHANGED") RunTimers(0)
+    SlashCmdList.CONJURER("") RunTimers(0)
+    local P = ns.UI.parts
+    local F = ConjurerFrame
+    local bg = DarkBackdrop(F)
+    check("the window, built after, gets its backdrop at the saved opacity", bg ~= nil and bg.colorTexture[4] == 0.8)
+    check("its title strip", HasColor(F, 0, 0, 0) ~= nil)
+    check("the portrait goes and Ready moves into its room, in line with the progress bar", P.readyButton.points[1][4] == 16
+      and (BARE or F.PortraitContainer.portrait.alpha == 0))
+    if not BARE then
+      local top = 0
+      for _, c in ipairs(F.kids) do top = math.max(top, c:GetFrameLevel()) end
+      check("the close button is an X, above the rest of the window", #F.CloseButton.regions == 2 and (F.CloseButton.level or 0) > top)
+      check("the title turns white", F.TitleContainer.TitleText.color[1] == 1)
+    end
+    check("Water and Food keep a darker box", HasColor(P.targetsBox, 0.025, 0.025, 0.03) ~= nil)
+    local index = SelectedTab()
+    local function Line(tab) for _, r in ipairs(tab.regions) do local c = r.colorTexture if c and c[1] == 0.25 and c[2] == 0.78 then return r end end end
+    check("the profile tabs are flat, the one on view marked in the accent", index and Line(P.tabs[index]) and Line(P.tabs[index]).shown
+      and Line(P.tabs[(index % 8) + 1]).shown == false)
+    check("the check on the profile Ready conjures stays", P.tabs[index].inUse.alpha == 1 and P.tabs[index].inUse.shown)
+    Click(P.tabs[2])
+    check("clicking a tab moves the mark", Line(P.tabs[2]).shown and not Line(P.tabs[1]).shown)
+    check("the headers are flat bars with a sign", HasColor(P.sections.water.header, 0.13, 0.13, 0.145) ~= nil
+      and P.sections.water.header.Sign.text == "-" and P.sections.options.header.Sign.text == "+")
+    check("buttons are flat", HasColor(P.keyButton, 0.13, 0.13, 0.145) ~= nil and HasColor(P.sections.water.action, 0.13, 0.13, 0.145) ~= nil)
+    check("checkboxes are dark boxes", HasColor(ns.UI.allRanks, 0.02, 0.02, 0.025) ~= nil
+      and HasColor(P.sections.alert.body.frameCheck, 0.02, 0.02, 0.025) ~= nil)
+    check("the announce message is a dark field", HasColor(P.announceBox, 0, 0, 0) ~= nil)
+    local rb = P.readyButton
+    check("the Ready icon is square, its frame faded, its glow kept", rb.icon.texCoord[1] == 0.08 and #rb.icon.masks == 0
+      and (BARE or rb.iconBorder.alpha == 0) and rb.glow ~= nil)
+    check("so is the macro icon", P.macroButton.icon.texCoord[1] == 0.08)
+    check("and the rank rows' icons", P.rankRows.water[1].icon.texCoord[1] == 0.08 and P.rankRows.food[1].icon.texCoord[1] == 0.08)
+    check("and You keep's", P.shareRows[1].icon.texCoord[1] == 0.08)
+    if not BARE then
+      check("the click button too, out of combat", P.clickButton.icon.texCoord[1] == 0.08)
+      check("the progress bar's bronze frame gives way to a dark track", P.progress.track ~= nil and P.progress.artPieces[2][1].alpha == 0
+        and P.progress.fill.alpha ~= 0)
+    end
+
+    -- The quick access bar, built after the style.
+    ns.db.alert.always = true
+    ns.Alert.Update(true)
+    check("the quick access bar's panel is drawn", DarkBackdrop(ConjurerAlertBorder) ~= nil and (BARE or ConjurerAlertBorder.Bg.shown == false))
+    check("its icons are square", ConjurerAlertWater.icon.texCoord[1] == 0.08 and ConjurerAlertPlay.icon.texCoord[1] == 0.08
+      and (BARE or ConjurerAlertConjure.icon.texCoord[1] == 0.08))
+    check("its cog keeps its art, as ShardGrid's does", HasColor(ConjurerAlertSettings, 0.13, 0.13, 0.145) == nil)
+    if not BARE then check("its progress bar gets the dark track", ConjurerAlertProgress.track ~= nil) end
+    ns.db.gems.keep = true
+    KNOWN[10054] = true
+    ns.Alert.Update(true)
+    check("a gem's icon, made later, is square too", ConjurerAlertGem4 and ConjurerAlertGem4.shown and (ConjurerAlertGem4.icon.texCoord or {})[1] == 0.08)
+
+    ns.Trade.ShowTradeButton()
+    check("the buttons under the trade window keep the game's look under Dark", ConjurerTradeButton and HasColor(ConjurerTradeButton, 0.13, 0.13, 0.145) == nil)
+
+    Click(P.sections.look.header)
+    local L = P.sections.look.body
+    check("the opacity slider is live", L.opacity.alpha == 1 and L.opacityLabel.font == "GameFontHighlight")
+    L.opacity.Slider:SetValue(60) RunTimers(0)
+    check("moving it sets the opacity", ns.db.darkAlpha == 0.6)
+    check("and the window and the bar follow at once", bg.colorTexture[4] == 0.6 and DarkBackdrop(ConjurerAlertBorder).colorTexture[4] == 0.6)
+    SlashCmdList.CONJURER("style blizzard") RunTimers(0)
+    check("leaving Dark asks for a reload, in a prompt drawn in Dark", ConjurerReloadPrompt and ConjurerReloadPrompt.shown
+      and DarkBackdrop(ConjurerReloadPrompt) ~= nil)
+    check("the slider grays for Blizzard", L.opacity.alpha == 0.5 and L.opacityLabel.font == "GameFontDisable")
+    local n, list = SkinErrors(ns.report)
+    check("no skin errors", n == 0, list)
+    check("nothing refused", #ns.refused == 0)
+  ` },
+  { label: 'window style: EllesmereUI', code: String.raw`
+    if BARE then BAD_TEMPLATES.UIPanelButtonTemplate = nil end
+    StandInEllesmereUI()
+    local ns = LoadConjurer()
+    fire("ADDON_LOADED", "Conjurer")
+    fire("PLAYER_LOGIN") RunTimers(0)
+    check("registered with EllesmereUI under the folder name", EUI_REG == "Conjurer")
+    EUI_FN(EUI_S) -- EllesmereUI calls back at login
+    fire("PLAYER_ENTERING_WORLD") RunTimers(0)
+    check("Automatic takes EllesmereUI's look when it calls back", ns.Styles.Applied() == "eui" and ns.Styles.S == EUI_S)
+    check("and the debug report says so", ns.report.skin == "EllesmereUI (eui style)", ns.report.skin)
+    KnowAll() fire("SPELLS_CHANGED") RunTimers(0)
+    SlashCmdList.CONJURER("") RunTimers(0)
+    local P = ns.UI.parts
+    local F = ConjurerFrame
+    check("the window is shelled", Did(F, "Shell"))
+    check("its inset and the Water and Food box", Did(F.insetFrame, "Inset") and Did(P.targetsBox, "Panel"))
+    check("the scroll bar", BARE or Did(P.scroll.ScrollBar, "ScrollBar"))
+    if not BARE then
+      local border, top = nil, 0
+      for _, c in ipairs(F.kids) do if c.euiBorder then border = c end top = math.max(top, c:GetFrameLevel()) end
+      check("the close button, raised over EllesmereUI's border", Did(F.CloseButton, "CloseButton") and border and (F.CloseButton.level or 0) > top)
+    end
+    local index = SelectedTab()
+    check("the profile tabs, the one on view selected", Did(P.tabs[1], "Tab") and Did(P.tabs[8], "Tab") and TAB_SELECTED[P.tabs[index]] == true
+      and TAB_SELECTED[P.tabs[(index % 8) + 1]] == false)
+    check("the headers", Did(P.sections.water.header, "Button") and Did(P.sections.options.header, "Button") and P.sections.water.header.Sign.text == "-")
+    check("buttons, checkboxes and the edit box", Did(P.keyButton, "Button") and Did(P.keyButton, "WhiteButtonLabel")
+      and Did(ns.UI.allRanks, "Checkbox") and Did(P.announceBox, "EditBox"))
+    check("the icons squared, masks off first", Did(P.readyButton.icon, "SquareIcon") and #P.readyButton.icon.masks == 0
+      and Did(P.macroButton.icon, "SquareIcon") and Did(P.rankRows.water[1].icon, "SquareIcon"))
+    check("the texts in its font", Did(P.readyTitle, "Font") and Did(P.sections.water.header.Name, "Font") and Did(ns.UI.allRanks.label, "Font"))
+    check("but not the progress count, which stays outlined", not Did(P.progress.text, "Font"))
+    check("the Look section's style button", Did(P.sections.look.body.styleButton, "Button"))
+    GROUP = { { unit = "party1", guid = "G1", name = "Pria", level = 60, class = "PRIEST" } }
+    fire("GROUP_ROSTER_UPDATE") RunTimers(0)
+    ns.UI.Refresh()
+    check("a group row made later", P.memberRows[1] and Did(P.memberRows[1].button, "Button") and Did(P.memberRows[1].name, "Font"))
+    ns.db.alert.always = true
+    ns.Alert.Update(true)
+    check("the quick access bar's panel and icons", Did(ConjurerAlertBorder, "Shell") and Did(ConjurerAlertWater.icon, "SquareIcon")
+      and Did(ConjurerAlertPlay.icon, "SquareIcon") and (BARE or Did(ConjurerAlertBorder.title, "Font")))
+    check("its cog keeps its art", not Did(ConjurerAlertSettings, "Button"))
+    ns.Trade.ShowTradeButton()
+    check("the buttons under the trade window follow EllesmereUI's look", Did(ConjurerTradeButton, "Button") and Did(ConjurerTradeClear, "Button"))
+    SlashCmdList.CONJURER("style dark") RunTimers(0)
+    check("Dark while EllesmereUI's look is drawn takes a reload", ns.Styles.Applied() == "eui" and ConjurerReloadPrompt.shown
+      and ns.report.skin == "EllesmereUI (eui style), Dark after a /reload", ns.report.skin)
+    check("the prompt is in EllesmereUI's look", Did(ConjurerReloadPrompt, "Shell") and Did(ConjurerReloadPrompt.reload, "Button"))
+    SlashCmdList.CONJURER("debug") RunTimers(0)
+    check("/conjure debug has the skin line", ChatWith("skin: EllesmereUI (eui style), Dark after a /reload") == 1)
+    local n, list = SkinErrors(ns.report)
+    check("no skin errors, and no call outside the facade", n == 0, list)
+  ` },
 ];
 
 // ------------------------------------------------------------------
@@ -3067,7 +3398,7 @@ const bareDriver = driver
   .replace(/check\("a play button sits over the Ready icon"[^\n]*\n[^\n]*\n/, 'check("without the play art the button says Start", P.readyButton.playText.shown and P.readyButton.playText.text == "Start" and not P.readyButton.play.shown)\n')
   .replace(/check\("and it's lit up while there's something to start"[^\n]*\n/, 'check("in full while there is something to start", P.readyButton.playText.alpha == 1)\n')
   .replace(/check\("the play button turns into a stop button"[^\n]*\n[^\n]*\n/, 'check("and Stop while lit", P.readyButton.playText.shown and P.readyButton.playText.text == "Stop")\n')
-  .replace(/check\("and the play button greys out"[^\n]*\n/, 'check("and Start fades when there is nothing to start", P.readyButton.playText.text == "Start" and P.readyButton.playText.alpha < 1)\n')
+  .replace(/check\("and the play button grays out"[^\n]*\n/, 'check("and Start fades when there is nothing to start", P.readyButton.playText.text == "Start" and P.readyButton.playText.alpha < 1)\n')
   .replace(/check\("Water and Food sit in their own inset"[^\n]*\n/, 'check("without the inset template Water and Food get a plain box", ns.report["targets box"] == "plain")\n')
   .replace(/check\("side by side, 3 apart, not overlapping"[^\n]*\n/, 'check("plain tabs sit side by side", P.tabs[2].points[1][4] == 3)\n')
   .replace(/check\("spread evenly across the whole width at full size"[^\n]*\n/, 'check("they fit the list", 8 + 8 * P.tabs[1].w + 7 * 3 <= P.content.w)\n')
@@ -3103,7 +3434,7 @@ let svText = null;
   const log = data.ConjurerLog || {};
   check('the reader parses it', Array.isArray(log.entries) && log.entries.length === 1500, log.entries && log.entries.length);
   check('with the session number', log.session === 1);
-  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.3\.1 debug report/.test(log.report[0]));
+  check('and the report', Array.isArray(log.report) && /^Conjurer 1\.4\.0 debug report/.test(log.report[0]));
   const { execFileSync } = require('child_process');
   const out = execFileSync(process.execPath, [DIR + 'tools/conjurer-log.js', '--file', tmp, '--last', '5'], { encoding: 'utf8' });
   check('the command prints the file and the lines', out.includes('Conjurer log: ' + tmp) && out.includes('filler 1600') && out.includes('--- debug report'));
@@ -3137,8 +3468,8 @@ let svText = null;
   const field = (text, name) => { const m = new RegExp('^## ' + name + ': *(.*)$', 'm').exec(text || ''); return m ? m[1].trim() : null; };
   check('the TOC is for this client', field(toc, 'Interface') === '16001');
   check('titled Conjurer', field(toc, 'Title') === 'Conjurer');
-  check('version 1.3.1', field(toc, 'Version') === '1.3.1');
-  check('the version matches the code', /ns\.version = "1\.3\.1"/.test(sources['Core.lua']));
+  check('version 1.4.0', field(toc, 'Version') === '1.4.0');
+  check('the version matches the code', /ns\.version = "1\.4\.0"/.test(sources['Core.lua']));
   check('per-character saved variables', field(toc, 'SavedVariablesPerCharacter') === 'ConjurerDB');
   const listed = toc.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('#')).map(l => l.trim());
   check('the TOC lists the XML and every Lua file in order', listed.join(',') === ['Conjurer.xml'].concat(files).join(','), listed.join(','));
@@ -3150,9 +3481,9 @@ let svText = null;
   const changelog = (read('CHANGELOG.md') || '').replace(/\r\n/g, '\n');
   const notes = (read('RELEASE-NOTES.md') || '').replace(/\r\n/g, '\n');
   const top = changelog.split(/\n(?=## )/).find(s => s.startsWith('## ')) || '';
-  check('the changelog opens on 1.3.1', /^## 1\.3\.1 - /.test(top), top.slice(0, 30));
+  check('the changelog opens on 1.4.0', /^## 1\.4\.0 - /.test(top), top.slice(0, 30));
   check('the release notes are that section and nothing else', notes.replace(/\s+$/, '') === top.replace(/\s+$/, ''));
-  check('there is a licence', /MIT License/.test(read('LICENSE') || ''));
+  check('there is a license', /MIT License/.test(read('LICENSE') || ''));
   check('the README names the slash command', /\/conjure/.test(read('README.md') || ''));
   const texts = [];
   const walk = rel => {

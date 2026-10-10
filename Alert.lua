@@ -246,6 +246,8 @@ local function Icon(e)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	b:Hide()
 	icons[e.key] = b
+	-- A gem's icon is made the first time it's missing, so it is restyled as it is made.
+	if ns.SkinAlertIcon then ns.SkinAlertIcon(b) end
 	return b
 end
 
@@ -362,11 +364,15 @@ local function Build()
 	progress:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", PROGRESS_OUT, -PROGRESS_GAP)
 	Drag(progress)
 
+	-- For the window styles (Conjurer_Skins.lua), which restyle the bar once it is built.
+	A.parts = { holder = holder, border = border, play = playButton, cog = cogButton, conjure = conjureButton,
+		announce = announceButton, progress = progress, icons = icons }
+	if ns.SkinAlert then ns.SkinAlert() end
 	holder:Hide()
 	ns.Stage("idle")
 end
 
--- The Ready button lights up while Ready is, as the window's does, and greys out in combat, when
+-- The Ready button lights up while Ready is, as the window's does, and grays out in combat, when
 -- conjuring can't start.
 local function PaintPlay()
 	if not playButton then return end
@@ -409,6 +415,14 @@ local function PlaceCog(on)
 			cogButton:SetPoint("TOPLEFT", holder, "TOPLEFT", x, top - (SIZE - shown) / 2)
 		end
 	end
+end
+
+-- A window style may give the title its own font; the title keeps that font at the size it grows to.
+function A.TitleFontChanged()
+	local title = border and border.title
+	if not (titleFont and title and title.GetFont) then return end
+	local path, _, flags = title:GetFont()
+	if path then titleFont[1], titleFont[3] = path, flags end
 end
 
 -- The panel's title: Conjurer, or how far the conjuring has got, the progress bar's count, as

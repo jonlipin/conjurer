@@ -168,22 +168,22 @@ T.COLORS = {
 	ready = { 0.35, 0.75, 1 },
 	short = { 1, 0.6, 0.2 },
 	done = { 0.4, 0.85, 0.4 },
-	grey = { 0.55, 0.55, 0.55 },
+	gray = { 0.55, 0.55, 0.55 },
 }
 
--- A member's line: the status text, its colour, and the label for their button (nil for none).
+-- A member's line: the status text, its color, and the label for their button (nil for none).
 function T.Status(m)
 	local share = T.ShareFor(m)
-	if (share.water or 0) + (share.food or 0) == 0 then return "No share", "grey", nil end
+	if (share.water or 0) + (share.food or 0) == 0 then return "No share", "gray", nil end
 	local owed, missing = T.Owed(m)
 	local trading = T.open and T.partner and T.partner.guid == m.guid
 	if #owed == 0 then
-		if missing > 0 then return "Nothing you can make", "grey", nil end
+		if missing > 0 then return "Nothing you can make", "gray", nil end
 		local left = T.HandedMinutesLeft(m.guid)
 		return "Handed out" .. (left and (" (" .. left .. "m)") or ""), "done", trading and "Fill" or "Again"
 	end
-	if not m.connected then return "Offline", "grey", nil end
-	if not trading and not InRange(m.unit) then return "Out of range", "grey", "Trade" end
+	if not m.connected then return "Offline", "gray", nil end
+	if not trading and not InRange(m.unit) then return "Out of range", "gray", "Trade" end
 	for _, p in ipairs(owed) do
 		local have = ns.Count(p.entry.item)
 		if have < p.count then
@@ -670,6 +670,8 @@ function T.ShowTradeButton()
 		end)
 		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		tradeButton = b
+		T.rowButtons = { b, water, food, clear }
+		if ns.SkinTradeRow then ns.SkinTradeRow(T.rowButtons) end
 		report["trade button"] = "under the trade window"
 	end
 	tradeButton:Show()
@@ -803,7 +805,7 @@ ns.On("TRADE_CLOSED", function()
 	ns.Log("trade closed" .. (T.recorded and " (counted)" or (T.accepted and " (checking the bags)" or " (not completed)")))
 	T.open = false
 	T.job = nil
-	-- No "trade complete" message was recognised: the bags tell whether the items left.
+	-- No "trade complete" message was recognized: the bags tell whether the items left.
 	if T.accepted and not T.recorded and T.offer and T.countsAtAccept then
 		local offer, before, partner = T.offer, T.countsAtAccept, T.partner
 		ns.After(1, function()
