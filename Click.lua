@@ -282,3 +282,8 @@ ns.debugSources[#ns.debugSources + 1] = function()
 			.. tostring(b and b.row and b.row.name or "nothing"),
 	}
 end
+
+-- Hook Dominos updates into Click updates if active
+if C_AddOns.IsAddOnLoaded("Dominos") or Dominos ~= nil then
+    ns.On("ACTIONBAR_SLOT_CHANGED", function() K.Refresh() end)
+end
