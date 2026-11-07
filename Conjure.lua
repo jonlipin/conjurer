@@ -112,7 +112,24 @@ end
 
 -- A button on a bar you don't show, empty or already holding a conjure spell. The one used last
 -- time comes first; a shown bar is used only when every hidden one is full.
+-- Modified to look for Dominos bars if active
 function C.FindSlot()
+	-- Check if Dominos is loaded
+	if C_AddOns.IsAddOnLoaded("Dominos") or Dominos ~= nil then
+		for i = 120, 1, -1 do
+			local slot = i
+			-- If the slot is empty or already holds one of our conjure spells
+			if Free(slot) then
+				-- Dominos maps its command names to its own action buttons
+				return {
+					bar = "Dominos", index = i, slot = slot, label = "Dominos Bar", shown = false,
+					command = "CLICK DominosActionButton" .. i .. ":LeftButton",
+				}
+			end
+		end
+	end
+
+	-- Fallback to standard Blizzard bars if Dominos is not loaded
 	local saved = ns.db.slot
 	if type(saved) == "table" and BAR_BY_NAME[saved.bar] and saved.index then
 		local b = BAR_BY_NAME[saved.bar]
@@ -133,6 +150,7 @@ function C.FindSlot()
 	end
 	return nil
 end
+
 
 local function PickupSpellOnCursor(spell)
 	local fn = (C_Spell and C_Spell.PickupSpell) or PickupSpell
